@@ -69,6 +69,12 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # The action's default package list still asks for `tools`, which
+          # Google removed from the SDK repository -- sdkmanager exits 1 and the
+          # run fails before Gradle is ever reached. Name what the build needs
+          # instead of accepting the default.
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
