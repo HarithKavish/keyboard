@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Three things have to line up for the keyboard to sit on a fully
+         transparent backdrop: a transparent window background, a translucent
+         window, and a null background cache hint. Leave any one of them out and
+         the platform paints an opaque panel behind the keys. -->
+    <style name="Theme.GlassKeyboard" parent="@android:style/Theme.InputMethod">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:colorBackgroundCacheHint">@null</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowAnimationStyle">@android:style/Animation.InputMethod</item>
+    </style>
+
+    <!-- The setup screen follows the device theme. DayNight only exists from
+         API 29, so it is applied in values-v29 and this is the fallback. -->
+    <style name="Theme.Setup" parent="@android:style/Theme.DeviceDefault">
+        <item name="android:windowNoTitle">true</item>
+    </style>
+</resources>

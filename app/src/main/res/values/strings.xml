@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Glass Keyboard</string>
+    <string name="subtype_en">English (US)</string>
+
+    <string name="setup_tagline">A QWERTY keyboard made of glass.</string>
+    <string name="setup_step_one">1 · Enable Glass Keyboard</string>
+    <string name="setup_step_one_detail">Turn it on in the system list of input methods.</string>
+    <string name="setup_step_two">2 · Switch to it</string>
+    <string name="setup_step_two_detail">Pick Glass Keyboard as the keyboard to type with.</string>
+    <string name="setup_enable">Open input method settings</string>
+    <string name="setup_switch">Choose Glass Keyboard</string>
+    <string name="setup_try">Try it here</string>
+    <string name="setup_try_hint">Tap to type</string>
+</resources>
