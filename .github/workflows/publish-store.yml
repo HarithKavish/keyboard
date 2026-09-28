@@ -89,20 +89,33 @@ jobs:
         run: |
           set -euo pipefail
           LATEST=$(gh release list --repo "${{ github.repository }}" --limit 1 \
-                     --json tagName --jq '.[0].tagName // "v0.0.0"' 2>/dev/null || echo "v0.0.0")
+                     --json tagName --jq '.[0].tagName // ""' 2>/dev/null || echo "")
           VERSION="${LATEST#v}"
-          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            VERSION="0.0.0"
+
+          if [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            # There is a previous release: the next one is a patch above it.
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+            PATCH=$((PATCH + 1))
+          else
+            # No release yet. Ship the version the build file already declares,
+            # rather than bumping from an imagined 0.0.0 -- that would publish
+            # 0.0.1 for a repository whose source says 0.1.0, so the store's
+            # first build would read as older than the code it came from.
+            DECLARED=$(sed -n 's/.*versionName *= *"\([^"]*\)".*/\1/p' app/build.gradle.kts | head -n 1)
+            if [[ ! "$DECLARED" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::No release tag, and app/build.gradle.kts declares no usable versionName (got '$DECLARED')."
+              exit 1
+            fi
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$DECLARED"
           fi
-          IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
-          PATCH=$((PATCH + 1))
+
           NEW="$MAJOR.$MINOR.$PATCH"
           # versionCode must increase monotonically or Android refuses the update.
           CODE=$((MAJOR * 10000 + MINOR * 100 + PATCH))
           echo "version=$NEW"   >> "$GITHUB_OUTPUT"
           echo "tag=v$NEW"      >> "$GITHUB_OUTPUT"
           echo "code=$CODE"     >> "$GITHUB_OUTPUT"
-          echo "Previous: $LATEST -> new: v$NEW (versionCode $CODE)"
+          echo "Previous: ${LATEST:-none} -> new: v$NEW (versionCode $CODE)"
 
       - name: Apply version to the build file
         env:
