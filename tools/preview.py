@@ -370,14 +370,15 @@ def draw_panel(bg, night):
     cell = (W - 2 * pad_h) / COLUMNS
     bar_h = 46 * DENSITY
     side = (W - 2 * pad_h) * SIDE_SHARE
-    header_h = 30 * DENSITY
+    # One cell tall, so a search result matches a grid emoji exactly.
+    header_h = cell
     inset = 2.5 * DENSITY
     pane = cell - inset * 2
     radius = pane * 0.28
 
     panes = Image.new("RGBA", (W, height), (0, 0, 0, 0))
     top0 = strip_height
-    hi = 3 * DENSITY
+    hi = 2.5 * DENSITY
     header_pane = header_h - hi * 2
     panes = blend(panes, glass_key((W, height), pad_h, top0 + hi, W - pad_h * 2,
                                    header_pane, header_pane * 0.34,
@@ -417,8 +418,8 @@ def draw_panel(bg, night):
     board.paste(panes, (0, 0), panes)
 
     d = ImageDraw.Draw(board)
-    header_font = ImageFont.truetype(TEXT_FONT, int(12 * DENSITY))
-    emoji_font = ImageFont.truetype(EMOJI_FONT, int(cell * 0.60))
+    header_font = ImageFont.truetype(TEXT_FONT, int(15 * DENSITY))
+    emoji_font = ImageFont.truetype(EMOJI_FONT, int(cell * 0.72))
     tab_font = ImageFont.truetype(EMOJI_FONT, int(min(cell, tab_w) * 0.50))
     abc_font = ImageFont.truetype(TEXT_FONT, int(14 * DENSITY))
 
@@ -473,8 +474,9 @@ def draw_search(bg, night):
     pad_h = 14 * DENSITY
     bar_h = 46 * DENSITY
     side = (W - 2 * pad_h) * SIDE_SHARE
-    header_h = 30 * DENSITY
-    hi = 3 * DENSITY
+    cell_w = (W - 2 * pad_h) / COLUMNS
+    header_h = cell_w
+    hi = 2.5 * DENSITY
     pane = header_h - hi * 2
     top0 = strip_height
 
@@ -490,29 +492,33 @@ def draw_search(bg, night):
                                    rim_top, rim_bottom, stroke, tint))
     res_left = pad_h + back_w + hi * 2
     res_right = box_left - hi * 2
-    cell = pane
+    cell = cell_w
     for i in range(len(SEARCH_HITS)):
         x = res_left + i * cell
         if x + cell > res_right:
             break
-        panes = blend(panes, glass_key((W, height), x + 1.5 * DENSITY,
-                                       top0 + hi + 1.5 * DENSITY,
-                                       cell - 3 * DENSITY, pane - 3 * DENSITY,
-                                       pane * 0.27, top, bottom,
+        panes = blend(panes, glass_key((W, height), x + hi, top0 + hi,
+                                       cell - hi * 2, pane,
+                                       (cell - hi * 2) * 0.28, top, bottom,
                                        rim_top, rim_bottom, stroke, tint))
 
+    # The home keyboard's geometry exactly: 6dp gap, 10dp corner, a unit taken
+    # from a full ten-key row, short rows centred inside it.
     grid_top = top0 + header_h
     grid_h = height - bar_h - grid_top
     row_h = grid_h / 3
-    unit = (W - pad_h * 2) / 10
-    inset = 2.5 * DENSITY
+    kgap = 6 * DENSITY
+    keys_w = W - pad_h * 2
+    unit = (keys_w - kgap * 9) / 10
+    kradius = 10 * DENSITY
+    pane_h = row_h - kgap
     for r, row in enumerate(SEARCH_ROWS):
-        x0 = pad_h + ((W - pad_h * 2) - len(row) * unit) / 2
+        row_w = kgap * (len(row) - 1) + unit * len(row)
+        x0 = pad_h + (keys_w - row_w) / 2
         y = grid_top + r * row_h
         for c in range(len(row)):
-            panes = blend(panes, glass_key((W, height), x0 + c * unit + inset,
-                                           y + inset, unit - inset * 2,
-                                           row_h - inset * 2, row_h * 0.26,
+            panes = blend(panes, glass_key((W, height), x0 + c * (unit + kgap),
+                                           y, unit, pane_h, kradius,
                                            top, bottom, rim_top, rim_bottom,
                                            stroke, tint))
     bi = 4 * DENSITY
@@ -527,28 +533,32 @@ def draw_search(bg, night):
 
     d = ImageDraw.Draw(board)
     cy = top0 + header_h / 2
-    r = pane * 0.24
+    r = pane * 0.30
     d.line([(pad_h + back_w / 2 + r * 0.5, cy - r),
             (pad_h + back_w / 2 - r * 0.5, cy),
             (pad_h + back_w / 2 + r * 0.5, cy + r)],
            fill=ink + (255,), width=max(1, round(r * 0.24)), joint="curve")
-    qfont = ImageFont.truetype(TEXT_FONT, int(12 * DENSITY))
+    qfont = ImageFont.truetype(TEXT_FONT, int(15 * DENSITY))
     d.text((box_left + 10 * DENSITY, cy), "cat", font=qfont, anchor="lm",
            fill=ink + (255,))
-    efont = ImageFont.truetype(EMOJI_FONT, int(cell * 0.62))
+    caret_x = box_left + 10 * DENSITY + d.textlength("cat", font=qfont) + 2 * DENSITY
+    d.line([(caret_x, cy - pane * 0.28), (caret_x, cy + pane * 0.28)],
+           fill=ink + (255,), width=max(1, round(1.5 * DENSITY)))
+    efont = ImageFont.truetype(EMOJI_FONT, int(cell * 0.72))
     for i, glyph in enumerate(SEARCH_HITS):
         x = res_left + i * cell
         if x + cell > res_right:
             break
         d.text((x + cell / 2, cy), glyph, font=efont, anchor="mm",
                embedded_color=True)
-    lfont = ImageFont.truetype(TEXT_FONT, int(min(row_h * 0.38, 14 * DENSITY)))
+    lfont = ImageFont.truetype(TEXT_FONT, int(min(pane_h * 0.40, 14 * DENSITY)))
     for r2, row in enumerate(SEARCH_ROWS):
-        x0 = pad_h + ((W - pad_h * 2) - len(row) * unit) / 2
+        row_w = kgap * (len(row) - 1) + unit * len(row)
+        x0 = pad_h + (keys_w - row_w) / 2
         y = grid_top + r2 * row_h
         for c, ch in enumerate(row):
-            d.text((x0 + c * unit + unit / 2, y + row_h / 2), ch, font=lfont,
-                   anchor="mm", fill=ink + (255,))
+            d.text((x0 + c * (unit + kgap) + unit / 2, y + pane_h / 2), ch,
+                   font=lfont, anchor="mm", fill=ink + (255,))
     abcf = ImageFont.truetype(TEXT_FONT, int(14 * DENSITY))
     d.text((pad_h + side / 2, height - bar_h / 2), "ABC", font=abcf,
            anchor="mm", fill=ink + (255,))

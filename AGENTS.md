@@ -325,6 +325,24 @@ to type a search with. Backspace edits the query rather than the text field whil
 searching, and the category tabs are hidden, since they answer a question nobody
 is asking mid-search.
 
+**The heading row is exactly one emoji cell tall**, and its panes are inset by
+`cellInset()` like the grid's. That is what makes a search result and the same
+emoji in the grid identical rather than two numbers that happen to agree; change
+`headerHeight` away from `cell` and they drift apart silently.
+
+**The search keyboard repeats the home keyboard's geometry** -- `KEY_GAP_DP`,
+`KEY_RADIUS_DP` and a unit taken from a full ten-key row, with short rows centred
+inside it. These mirror `GlassKeyboardView.layoutKeys()` and are duplicated
+because that method lays out weighted `Keys.Key` rows while this is three fixed
+rows of letters. If those numbers move, move these with them. Hit testing snaps
+to the nearest key rather than the pane, so the gap is not dead space, the same
+as `keyAt()`.
+
+The caret blink is a posted Runnable that stops in `exitSearch()` and in
+`onDetachedFromWindow()`. One that keeps invalidating a detached view is a
+battery drain nobody goes looking for. Typing restarts it solid, because a caret
+that blinks out mid-keystroke reads as a dropped key.
+
 `Emoji.search()` is a plain static function over the keyword table, so the
 ranking is unit-testable. It matches in three bands — exact keyword, then prefix,
 then contained — kept separate on purpose: collapsing them into one `contains()`

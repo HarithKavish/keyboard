@@ -91,10 +91,35 @@ final class EmojiPanelView extends View {
     private static final String[] SEARCH_ROWS = {
         "qwertyuiop", "asdfghjkl", "zxcvbnm",
     };
+    /**
+     * How much of a cell the glyph fills. Generous: the pane is inset from the
+     * cell and the glyph inset again from that, so a modest-looking factor ends
+     * up as a small emoji on the screen.
+     */
+    private static final float EMOJI_SHARE = 0.72f;
+
+    /**
+     * The home keyboard's geometry, repeated here so the two agree.
+     *
+     * <p>These mirror `GlassKeyboardView.layoutKeys()`. Duplicated rather than
+     * shared because that method lays out a `Keys.Key[][]` with weights, and
+     * this is three fixed rows of plain letters -- but if those numbers move,
+     * these have to move with them or the search keys land somewhere else.
+     */
+    private static final float KEY_GAP_DP = 6f;
+    private static final float KEY_RADIUS_DP = 10f;
+    /** A letter's width on a full ten-key row. */
+    private static final float ROW_UNITS = 10f;
+
     /** More matches than this and the rest are not worth scrolling to. */
     private static final int MAX_RESULTS = 60;
 
+    /** Half a blink. Android's own text caret uses the same beat. */
+    private static final long CARET_BLINK_MS = 500L;
+
     private boolean searching;
+    /** Whether the caret is currently drawn; flipped by {@link #caretBlinker}. */
+    private boolean caretOn = true;
     private final StringBuilder query = new StringBuilder();
     private final List<String> results = new ArrayList<>();
     /** How far the result strip is scrolled sideways. */
@@ -136,6 +161,25 @@ final class EmojiPanelView extends View {
     private boolean pressedAbc;
     private boolean pressedBackspace;
     private float flingVelocity;
+
+    /**
+     * Flips the caret and asks for one more frame.
+     *
+     * <p>Only posted while searching, and stopped the moment the panel leaves
+     * the window: a Runnable that keeps invalidating a detached view is a
+     * battery leak nobody goes looking for.
+     */
+    private final Runnable caretBlinker = new Runnable() {
+        @Override
+        public void run() {
+            if (!searching) {
+                return;
+            }
+            caretOn = !caretOn;
+            invalidate();
+            postDelayed(this, CARET_BLINK_MS);
+        }
+    };
 
     private final Runnable flinger = new Runnable() {
         @Override
@@ -214,7 +258,9 @@ final class EmojiPanelView extends View {
     }
 
     private float headerInset() {
-        return density * 3f;
+        // The same inset as a cell, so the heading row's panes and the grid's
+        // line up instead of being a pixel or two out from each other.
+        return cellInset();
     }
 
     /** The back button, or the heading, at the left of the top row. */
@@ -235,9 +281,35 @@ final class EmojiPanelView extends View {
         return getWidth() - padH - searchBoxWidth() - headerInset() * 2f;
     }
 
-    /** One result's slot is square, on the row's height. */
+    private float keyGap() {
+        return KEY_GAP_DP * density;
+    }
+
+    private float keysWidth() {
+        return getWidth() - padH * 2f;
+    }
+
+    /**
+     * The width of one letter. Taken from a full ten-key row, so the nine- and
+     * seven-letter rows sit inside it centred rather than stretching to match.
+     */
+    private float keyUnit() {
+        return (keysWidth() - keyGap() * (ROW_UNITS - 1f)) / ROW_UNITS;
+    }
+
+    private float searchRowHeight() {
+        return gridHeight() / SEARCH_ROWS.length;
+    }
+
+    /** Where a row starts, centred inside the full width like the keyboard's. */
+    private float searchRowLeft(String row) {
+        float rowWidth = keyGap() * (row.length() - 1) + keyUnit() * row.length();
+        return padH + (keysWidth() - rowWidth) / 2f;
+    }
+
+    /** A result occupies exactly one cell, like the grid below it. */
     private float resultCell() {
-        return headerHeight - headerInset() * 2f;
+        return cell;
     }
 
     private float resultsSpan() {
@@ -269,7 +341,7 @@ final class EmojiPanelView extends View {
 
         // The heading is a button-weight pane, not a cell-weight one: it is a
         // label rather than something to press, so it sits back with the bar.
-        float headerPane = headerHeight - headerInset() * 2f;
+        float headerPane = headerHeight - cellInset() * 2f;
         headerShader = Glass.vertical(headerPane, Glass.dim(top), Glass.dim(bottom));
         headerRimShader = Glass.vertical(headerPane, rimA, rimB);
 
@@ -347,6 +419,7 @@ final class EmojiPanelView extends View {
 
     private void enterSearch() {
         searching = true;
+        startCaret();
         query.setLength(0);
         results.clear();
         resultScroll = 0f;
@@ -358,6 +431,7 @@ final class EmojiPanelView extends View {
     /** Back to the category that was open before the magnifier was tapped. */
     private void exitSearch() {
         searching = false;
+        removeCallbacks(caretBlinker);
         query.setLength(0);
         results.clear();
         resultScroll = 0f;
@@ -366,6 +440,13 @@ final class EmojiPanelView extends View {
         measurePage();
         setScroll(scroll);
         invalidate();
+    }
+
+    /** Restarts the blink so the caret is solid while someone is typing. */
+    private void startCaret() {
+        removeCallbacks(caretBlinker);
+        caretOn = true;
+        postDelayed(caretBlinker, CARET_BLINK_MS);
     }
 
     private void editQuery(char letter, boolean delete) {
@@ -383,6 +464,8 @@ final class EmojiPanelView extends View {
         results.clear();
         results.addAll(Emoji.search(query.toString(), MAX_RESULTS));
         resultScroll = 0f;
+        // A caret that blinks out mid-keystroke reads as a dropped key.
+        startCaret();
         invalidate();
     }
 
@@ -443,9 +526,11 @@ final class EmojiPanelView extends View {
         cell = (w - 2f * padH) / COLUMNS;
         barHeight = 46f * density;
         sideWidth = (w - 2f * padH) * SIDE_SHARE;
-        headerHeight = 30f * density;
-        emojiPaint.setTextSize(cell * 0.60f);
-        headerPaint.setTextSize(12f * density);
+        // One cell tall, so a search result is the same size and shape as the
+        // same emoji in the grid below rather than a shrunken copy of it.
+        headerHeight = cell;
+        emojiPaint.setTextSize(cell * EMOJI_SHARE);
+        headerPaint.setTextSize(15f * density);
         buildShaders();
         measurePage();
         setScroll(0f);
@@ -547,7 +632,7 @@ final class EmojiPanelView extends View {
             Glass.drawPane(canvas, fill, rim, shadow, density, boxLeft, hi,
                     boxW, pane, radius,
                     pressedBack ? barShaderPressed : headerShader, headerRimShader);
-            drawMagnifier(canvas, boxLeft + boxW / 2f, cy, pane * 0.26f);
+            drawMagnifier(canvas, boxLeft + boxW / 2f, cy, pane * 0.32f);
             return;
         }
 
@@ -555,7 +640,7 @@ final class EmojiPanelView extends View {
         Glass.drawPane(canvas, fill, rim, shadow, density, padH, hi, backW, pane,
                 radius, pressedBack ? barShaderPressed : headerShader,
                 headerRimShader);
-        drawBackArrow(canvas, padH + backW / 2f, cy, pane * 0.24f);
+        drawBackArrow(canvas, padH + backW / 2f, cy, pane * 0.30f);
 
         drawResults(canvas, hi, pane, radius);
 
@@ -563,11 +648,21 @@ final class EmojiPanelView extends View {
         float boxLeft = getWidth() - padH - boxW;
         Glass.drawPane(canvas, fill, rim, shadow, density, boxLeft, hi, boxW, pane,
                 radius, headerShader, headerRimShader);
-        String shown = query.length() == 0
+        float textLeft = boxLeft + 10f * density;
+        boolean empty = query.length() == 0;
+        String shown = empty
                 ? getResources().getString(R.string.emoji_search) : query.toString();
-        headerPaint.setAlpha(query.length() == 0 ? 0x80 : 0xFF);
-        canvas.drawText(shown, boxLeft + 10f * density, baseline, headerPaint);
+        headerPaint.setAlpha(empty ? 0x80 : 0xFF);
+        canvas.drawText(shown, textLeft, baseline, headerPaint);
         headerPaint.setAlpha(0xFF);
+        if (caretOn) {
+            float caretX = textLeft
+                    + (empty ? 0f : headerPaint.measureText(query.toString()))
+                    + density * 2f;
+            float half = pane * 0.28f;
+            canvas.drawRect(caretX, cy - half, caretX + density * 1.5f, cy + half,
+                    headerPaint);
+        }
     }
 
     /**
@@ -581,21 +676,23 @@ final class EmojiPanelView extends View {
         }
         int save = canvas.save();
         canvas.clipRect(resultsLeft(), hi, resultsRight(), hi + pane);
-        float cell = resultCell();
-        emojiPaint.setTextSize(cell * 0.62f);
+        float slot = resultCell();
+        emojiPaint.setTextSize(slot * EMOJI_SHARE);
         for (int i = 0; i < results.size(); i++) {
-            float x = resultsLeft() + i * cell - resultScroll;
-            if (x + cell < resultsLeft() || x > resultsRight()) {
+            float x = resultsLeft() + i * slot - resultScroll;
+            if (x + slot < resultsLeft() || x > resultsRight()) {
                 continue;
             }
-            float in = density * 1.5f;
-            Glass.drawPane(canvas, fill, rim, shadow, density, x + in, hi + in,
-                    cell - in * 2f, pane - in * 2f, radius * 0.8f,
+            // Drawn exactly as a grid cell is: same inset, same pane, same
+            // corner. A result is the same emoji, so it should not look
+            // like a different kind of thing.
+            Glass.drawPane(canvas, fill, rim, shadow, density, x + hi, hi,
+                    slot - hi * 2f, pane, (slot - hi * 2f) * 0.28f,
                     pressedResult == i ? barShaderPressed : cellShader,
                     cellRimShader);
             float baseline = hi + pane / 2f
                     - (emojiPaint.descent() + emojiPaint.ascent()) / 2f;
-            canvas.drawText(results.get(i), x + cell / 2f, baseline, emojiPaint);
+            canvas.drawText(results.get(i), x + slot / 2f, baseline, emojiPaint);
         }
         canvas.restoreToCount(save);
     }
@@ -625,32 +722,35 @@ final class EmojiPanelView extends View {
      */
     private void drawSearchKeys(Canvas canvas) {
         float top = gridTop();
-        float rowHeight = gridHeight() / SEARCH_ROWS.length;
-        float unit = (getWidth() - padH * 2f) / 10f;
-        float in = density * 2.5f;
-        tabPaint.setTextSize(Math.min(rowHeight * 0.38f, 14f * density));
-        float pane = rowHeight - in * 2f;
-        Shader body = Glass.vertical(pane, Glass.top(night, opacityScale),
-                Glass.bottom(night, opacityScale));
-        Shader bodyDown = Glass.vertical(pane, Glass.brighten(Glass.top(night, opacityScale)),
-                Glass.brighten(Glass.bottom(night, opacityScale)));
-        Shader edge = Glass.vertical(pane, Glass.rimTop(night, opacityScale),
+        float rowHeight = searchRowHeight();
+        float unit = keyUnit();
+        float gap = keyGap();
+        float paneHeight = rowHeight - gap;
+        float radius = KEY_RADIUS_DP * density;
+        tabPaint.setTextSize(Math.min(paneHeight * 0.40f, 14f * density));
+
+        int top0 = Glass.top(night, opacityScale);
+        int bottom0 = Glass.bottom(night, opacityScale);
+        Shader body = Glass.vertical(paneHeight, top0, bottom0);
+        Shader bodyDown = Glass.vertical(paneHeight, Glass.brighten(top0),
+                Glass.brighten(bottom0));
+        Shader edge = Glass.vertical(paneHeight, Glass.rimTop(night, opacityScale),
                 Glass.rimBottom(night, opacityScale));
+
         int index = 0;
         for (int r = 0; r < SEARCH_ROWS.length; r++) {
             String row = SEARCH_ROWS[r];
-            float rowWidth = row.length() * unit;
-            float x0 = padH + ((getWidth() - padH * 2f) - rowWidth) / 2f;
+            float x = searchRowLeft(row);
             float y = top + r * rowHeight;
             for (int c = 0; c < row.length(); c++, index++) {
-                float x = x0 + c * unit;
-                Glass.drawPane(canvas, fill, rim, shadow, density, x + in, y + in,
-                        unit - in * 2f, pane, pane * 0.26f,
+                Glass.drawPane(canvas, fill, rim, shadow, density, x, y,
+                        unit, paneHeight, radius,
                         pressedLetter == index ? bodyDown : body, edge);
-                float baseline = y + rowHeight / 2f
+                float baseline = y + paneHeight / 2f
                         - (tabPaint.descent() + tabPaint.ascent()) / 2f;
                 canvas.drawText(String.valueOf(row.charAt(c)), x + unit / 2f,
                         baseline, tabPaint);
+                x += unit + gap;
             }
         }
     }
@@ -958,15 +1058,17 @@ final class EmojiPanelView extends View {
         if (!searching || y < gridTop() || y >= viewportHeight()) {
             return -1;
         }
-        float rowHeight = gridHeight() / SEARCH_ROWS.length;
+        float rowHeight = searchRowHeight();
         int r = (int) ((y - gridTop()) / rowHeight);
         if (r < 0 || r >= SEARCH_ROWS.length) {
             return -1;
         }
-        float unit = (getWidth() - padH * 2f) / 10f;
         String row = SEARCH_ROWS[r];
-        float x0 = padH + ((getWidth() - padH * 2f) - row.length() * unit) / 2f;
-        int c = (int) ((x - x0) / unit);
+        float unit = keyUnit();
+        float pitch = unit + keyGap();
+        // Snapped to the nearest key rather than the pane, so the gap between
+        // two keys is not dead space -- the same as keyAt() on the keyboard.
+        int c = (int) ((x - searchRowLeft(row)) / pitch);
         if (c < 0 || c >= row.length()) {
             return -1;
         }
@@ -1038,6 +1140,7 @@ final class EmojiPanelView extends View {
     @Override
     protected void onDetachedFromWindow() {
         removeCallbacks(flinger);
+        removeCallbacks(caretBlinker);
         releaseTracker();
         super.onDetachedFromWindow();
     }
