@@ -4,7 +4,8 @@ the source stays pure ASCII and cannot be mangled by a build whose file encoding
 differs from the editor's."""
 import pathlib
 
-DIR = pathlib.Path("keyboard/app/src/main/java/com/harithkavish/keyboard")
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+DIR = ROOT / "app/src/main/java/com/harithkavish/keyboard"
 
 
 def esc(s):

@@ -101,7 +101,6 @@ final class GlassKeyboardView extends View {
     private final Paint icon = new Paint(Paint.ANTI_ALIAS_FLAG);
     /** Colour emoji carry their own colour, and a shadow under them looks wrong. */
     private final Paint emojiPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint chip = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Path iconPath = new Path();
     private final RectF slot = new RectF();
 
@@ -154,6 +153,11 @@ final class GlassKeyboardView extends View {
     private Shader bodyShaderPressed;
     private Shader bodyShaderCommand;
     private Shader rimShader;
+    // The strip is shorter than a key row, and a gradient built for one height
+    // drawn at another clamps and loses its shape.
+    private Shader stripShader;
+    private Shader stripShaderPressed;
+    private Shader stripRimShader;
 
     private final Runnable repeat = new Runnable() {
         @Override
@@ -431,9 +435,44 @@ final class GlassKeyboardView extends View {
         rimShader = vertical(keyHeight,
                 Appearance.scaleAlpha(night ? 0x99FFFFFF : 0xB3FFFFFF, opacityScale),
                 Appearance.scaleAlpha(night ? 0x26FFFFFF : 0x2BFFFFFF, opacityScale));
+        float paneHeight = stripHeight - stripInset() * 2f;
+        stripShader = vertical(paneHeight, top, bottom);
+        stripShaderPressed = vertical(paneHeight, brighten(top), brighten(bottom));
+        stripRimShader = vertical(paneHeight,
+                Appearance.scaleAlpha(night ? 0x99FFFFFF : 0xB3FFFFFF, opacityScale),
+                Appearance.scaleAlpha(night ? 0x26FFFFFF : 0x2BFFFFFF, opacityScale));
         // A hairline. Anything thicker outlines the key instead of lighting it.
         rim.setStrokeWidth(Math.max(1f, density * 0.75f));
-        chip.setColor(night ? 0x1FFFFFFF : 0x4DFFFFFF);
+    }
+
+    /** How far a suggestion's pane sits inside its slot, so they do not touch. */
+    private float stripInset() {
+        return density * 2f;
+    }
+
+    /**
+     * Shadow, body and rim, at a rectangle. Used for the keys and for the
+     * suggestions both, because "the same glass" has to mean the same code --
+     * two copies would drift the moment either was tuned.
+     */
+    private void drawPane(Canvas canvas, float x, float y, float w, float h,
+                          float radius, Shader body, Shader paneRim) {
+        int save = canvas.save();
+        // The shaders are built for a gradient of a given height, so each pane is
+        // drawn at the origin and moved into place.
+        canvas.translate(x, y);
+        for (int i = 0; i < SHADOW_OFFSET_DP.length; i++) {
+            float off = SHADOW_OFFSET_DP[i] * density;
+            shadow.setColor(SHADOW_ALPHA[i] << 24);
+            canvas.drawRoundRect(off * 0.4f, off, w - off * 0.4f, h + off,
+                    radius, radius, shadow);
+        }
+        fill.setShader(body);
+        canvas.drawRoundRect(0f, 0f, w, h, radius, radius, fill);
+        rim.setShader(paneRim);
+        float half = rim.getStrokeWidth() / 2f;
+        canvas.drawRoundRect(half, half, w - half, h - half, radius, radius, rim);
+        canvas.restoreToCount(save);
     }
 
     private Shader vertical(float height, int top, int bottom) {
@@ -466,11 +505,6 @@ final class GlassKeyboardView extends View {
             float letterSize = rowHeight * 0.40f;
             float labelSize = rowHeight * 0.29f;
             for (Keys.Key key : rows[r]) {
-                int save = canvas.save();
-                // The shaders are built for a gradient one letter-row tall, so
-                // each key is drawn at the origin and moved into place.
-                canvas.translate(key.x, key.y);
-
                 boolean down = key == pressed;
                 Shader body;
                 if (down) {
@@ -480,22 +514,10 @@ final class GlassKeyboardView extends View {
                 } else {
                     body = bodyShader;
                 }
+                drawPane(canvas, key.x, key.y, key.w, key.h, keyRadius, body, rimShader);
 
-                for (int i = 0; i < SHADOW_OFFSET_DP.length; i++) {
-                    float off = SHADOW_OFFSET_DP[i] * density;
-                    shadow.setColor(SHADOW_ALPHA[i] << 24);
-                    canvas.drawRoundRect(off * 0.4f, off, key.w - off * 0.4f, key.h + off,
-                            keyRadius, keyRadius, shadow);
-                }
-
-                fill.setShader(body);
-                canvas.drawRoundRect(0f, 0f, key.w, key.h, keyRadius, keyRadius, fill);
-
-                rim.setShader(rimShader);
-                float half = rim.getStrokeWidth() / 2f;
-                canvas.drawRoundRect(half, half, key.w - half, key.h - half,
-                        keyRadius, keyRadius, rim);
-
+                int save = canvas.save();
+                canvas.translate(key.x, key.y);
                 if (hasIcon(key)) {
                     drawIcon(canvas, key);
                 } else {
@@ -523,22 +545,38 @@ final class GlassKeyboardView extends View {
                 continue;
             }
             slot.set(wordSlots[i]);
-            if (pressedSlot == i) {
-                canvas.drawRoundRect(slot, radius, radius, chip);
-            }
+            drawSlotPane(canvas, slot, pressedSlot == i, radius);
             float baseline = slot.centerY() - (text.descent() + text.ascent()) / 2f;
             canvas.drawText(shape(words.get(rank)), slot.centerX(), baseline, text);
         }
 
         for (int i = 0; i < EMOJI_SLOTS && i < emoji.size(); i++) {
             slot.set(emojiSlots[i]);
-            if (pressedSlot == WORD_SLOTS + i) {
-                canvas.drawRoundRect(slot, radius, radius, chip);
-            }
+            drawSlotPane(canvas, slot, pressedSlot == WORD_SLOTS + i, radius);
             float baseline = slot.centerY()
                     - (emojiPaint.descent() + emojiPaint.ascent()) / 2f;
             canvas.drawText(emoji.get(i), slot.centerX(), baseline, emojiPaint);
         }
+    }
+
+    /**
+     * The glass under one suggestion. Inset from its slot so neighbouring
+     * suggestions read as separate panes rather than as one long bar.
+     */
+    private void drawSlotPane(Canvas canvas, RectF bounds, boolean down, float radius) {
+        if (stripShader == null) {
+            return;
+        }
+        float inset = stripInset();
+        float x = bounds.left + inset;
+        float y = bounds.top + inset;
+        float w = bounds.width() - inset * 2f;
+        float h = bounds.height() - inset * 2f;
+        if (w <= 0f || h <= 0f) {
+            return;
+        }
+        drawPane(canvas, x, y, w, h, radius,
+                down ? stripShaderPressed : stripShader, stripRimShader);
     }
 
     /** Centre slot holds the best guess, left the second, right the third. */

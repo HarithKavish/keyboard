@@ -4,7 +4,8 @@ word-to-emoji associations the Predictor starts from before it has learnt
 anything. Emoji go in as backslash-u escapes so the source stays pure ASCII."""
 import pathlib
 
-DIR = pathlib.Path("keyboard/app/src/main/java/com/harithkavish/keyboard")
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+DIR = ROOT / "app/src/main/java/com/harithkavish/keyboard"
 
 
 def esc(s):
@@ -32,7 +33,9 @@ need want try keep let put ask tell feel seem leave move turn start stop
 much many more less little big small long short high low old young
 really very quite pretty almost always never sometimes often usually maybe
 something anything nothing everything someone anyone everyone nobody
-should could would might must shall may can cant dont didnt wont isnt arent
+should could would might must shall may can can't don't didn't won't isn't aren't
+couldn't wouldn't shouldn't haven't hasn't wasn't weren't doesn't i'm i've it's
+you're we're they're that's there's let's
 finish finished done ready sure maybe problem question answer idea plan
 family friend friends mother father brother sister son daughter baby
 money price cost cheap free buy sell pay order delivery shipping

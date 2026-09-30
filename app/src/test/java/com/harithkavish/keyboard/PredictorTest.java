@@ -303,6 +303,73 @@ public class PredictorTest {
                 new java.util.HashSet<>(words).size());
     }
 
+
+    // --------------------------------------------------------- contractions
+
+    @Test
+    public void knowsContractionsWithTheirApostrophes() {
+        // The source word list has no apostrophes at all: it lists "dont" and
+        // "cant" as if they were words, which is exactly what the keyboard used
+        // to offer.
+        assertTrue(predictor.predictWords(null, "don").contains("don't"));
+        assertTrue(predictor.predictWords(null, "can").contains("can't"));
+    }
+
+    @Test
+    public void findsAContractionTypedWithoutItsApostrophe() {
+        // Nobody reaches for the apostrophe key mid-word, so the match has to
+        // step over it or the suggestion vanishes exactly when it is needed.
+        assertTrue(predictor.predictWords(null, "dont").contains("don't"));
+        assertTrue(predictor.predictWords(null, "didnt").contains("didn't"));
+    }
+
+    @Test
+    public void correctsABareContraction() {
+        assertEquals("don't", predictor.correct("dont"));
+        assertEquals("can't", predictor.correct("cant"));
+        assertEquals("didn't", predictor.correct("didnt"));
+    }
+
+    @Test
+    public void capitalisesAndPunctuatesTheBareFormsOfI() {
+        assertEquals("I'm", predictor.correct("im"));
+        assertEquals("I've", predictor.correct("ive"));
+    }
+
+    @Test
+    public void leavesAProperlyTypedContractionAlone() {
+        assertNull(predictor.correct("don't"));
+        assertNull(predictor.correct("can't"));
+    }
+
+    @Test
+    public void prefixMatchingStepsOverApostrophes() {
+        assertTrue(Predictor.matchesPrefix("don't", "dont"));
+        assertTrue(Predictor.matchesPrefix("don't", "don"));
+        assertTrue(Predictor.matchesPrefix("don't", "don'"));
+        assertTrue(Predictor.matchesPrefix("don't", "don't"));
+        assertTrue(Predictor.matchesPrefix("i'm", "im"));
+    }
+
+    @Test
+    public void prefixMatchingStillRejectsWhatItShould() {
+        assertFalse(Predictor.matchesPrefix("don't", "dog"));
+        assertFalse(Predictor.matchesPrefix("don't", "donts"));
+        assertFalse(Predictor.matchesPrefix("keyboard", "kbd"));
+        // A word with no apostrophe must not suddenly match loosely.
+        assertFalse(Predictor.matchesPrefix("dont", "dnt"));
+    }
+
+    @Test
+    public void keepsBothWordsWhereTheBareFormIsAlsoReal() {
+        // "its" and "it's" are both words, as are "were" and "we're". Losing
+        // either would be worse than the misspelling this fixes.
+        assertTrue(predictor.predictWords(null, "it").contains("it's")
+                || predictor.predictWords(null, "its").contains("it's"));
+        assertNull("the possessive must survive", predictor.correct("its"));
+        assertNull("the past tense must survive", predictor.correct("were"));
+    }
+
     // -------------------------------------------------------- always capital
 
     @Test

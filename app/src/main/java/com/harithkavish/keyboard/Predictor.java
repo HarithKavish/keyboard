@@ -101,8 +101,10 @@ final class Predictor {
      * Pairs: what was typed, what it becomes.
      */
     private static final String[] ALWAYS_CAPITAL = {
-        "i", "I", "i'm", "I'm", "i've", "I've", "i'll", "I'll",
-        "i'd", "I'd", "i'am", "I am",
+        "i", "I", "i'm", "I'm", "i've", "I've", "i'll", "I'll", "i'd", "I'd",
+        // The bare spellings too: these are what actually gets typed, and the
+        // apostrophe has to come back along with the capital.
+        "im", "I'm", "ive", "I've",
     };
 
     /**
@@ -123,11 +125,19 @@ final class Predictor {
 
         final List<String> byFrequency;
         final String[] sorted;
+        /** "dont" -> "don't", for the handful of words that have an apostrophe. */
+        final Map<String, String> restored;
 
         Vocab(List<String> words) {
             byFrequency = words;
             sorted = words.toArray(new String[0]);
             Arrays.sort(sorted);
+            restored = new HashMap<>();
+            for (String word : words) {
+                if (word.indexOf('\'') >= 0) {
+                    restored.put(word.replace("'", ""), word);
+                }
+            }
         }
 
         boolean contains(String word) {
@@ -177,6 +187,8 @@ final class Predictor {
     /** What the person actually meant, the last time they fixed a word by hand. */
     private final Map<String, String> forced = new HashMap<>();
 
+    /** The same lookup for the curated seeds, which are always in memory. */
+    private final Map<String, String> seedRestored = new HashMap<>();
     private final Set<String> questionStarts = new HashSet<>();
     private final Set<String> exclamationWords = new HashSet<>();
     private final Map<String, String> alwaysCapital = new HashMap<>();
@@ -234,6 +246,9 @@ final class Predictor {
             int score = Math.max(1, SEED_TOP - (SEED_TOP * i) / Math.max(1, words.length));
             seed.put(words[i], score);
             seedOrder.add(words[i]);
+            if (words[i].indexOf('\'') >= 0) {
+                seedRestored.put(words[i].replace("'", ""), words[i]);
+            }
         }
         seedBigrams();
         for (int i = 0; i + 1 < Emoji.KEYWORDS.length; i += 2) {
@@ -376,12 +391,12 @@ final class Predictor {
             String lower = prefix.toLowerCase();
             List<String> pool = new ArrayList<>();
             for (String word : seedOrder) {
-                if (word.startsWith(lower)) {
+                if (matchesPrefix(word, lower)) {
                     pool.add(word);
                 }
             }
             for (String word : unigram.keySet()) {
-                if (word.startsWith(lower) && !seed.containsKey(word)) {
+                if (matchesPrefix(word, lower) && !seed.containsKey(word)) {
                     pool.add(word);
                 }
             }
@@ -391,7 +406,7 @@ final class Predictor {
             int found = 0;
             for (int i = 0; i < words.byFrequency.size() && found < CANDIDATE_LIMIT; i++) {
                 String word = words.byFrequency.get(i);
-                if (word.startsWith(lower) && !unigram.containsKey(word)) {
+                if (matchesPrefix(word, lower) && !unigram.containsKey(word)) {
                     pool.add(word);
                     found++;
                 }
@@ -603,6 +618,18 @@ final class Predictor {
             return null;
         }
 
+        // Only now, once the typed form is known NOT to be a word. Checking
+        // earlier would turn the possessive "its" into "it's" and the past tense
+        // "were" into "we're", both of which are real words someone meant.
+        String restored = seedRestored.get(lower);
+        if (restored == null) {
+            restored = words.restored.get(lower);
+        }
+        if (restored != null) {
+            return blocked.contains(lower + ">" + restored)
+                    ? null : reshape(typed, restored);
+        }
+
         int allowed = lower.length() <= 4 ? 1 : 2;
         Candidate best = new Candidate();
         consider(seed.keySet(), lower, allowed, best);
@@ -770,6 +797,39 @@ final class Predictor {
     }
 
     // ----------------------------------------------------------------- helpers
+
+    /**
+     * Prefix matching that steps over apostrophes, so typing "dont" still finds
+     * "don't" and "im" still finds "i'm".
+     *
+     * <p>Nobody reaches for the apostrophe key mid-word. Without this, a
+     * dictionary that spells contractions properly would go quiet the moment
+     * someone typed past the apostrophe's position -- which is worse than the
+     * misspelling it fixed.
+     */
+    static boolean matchesPrefix(String word, String prefix) {
+        if (word.startsWith(prefix)) {
+            return true;
+        }
+        if (word.indexOf('\'') < 0) {
+            return false;
+        }
+        int w = 0;
+        int p = 0;
+        while (w < word.length() && p < prefix.length()) {
+            char c = word.charAt(w);
+            if (c == '\'') {
+                w++;
+                continue;
+            }
+            if (c != prefix.charAt(p)) {
+                return false;
+            }
+            w++;
+            p++;
+        }
+        return p == prefix.length();
+    }
 
     /** Letters and apostrophes only: digits and punctuation are not words. */
     static boolean isWordLike(String value) {

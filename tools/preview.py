@@ -228,14 +228,16 @@ def draw_keyboard(bg, page, night):
                     anchor="mm", fill=text_rgb + (255,))
 
     draw_strip(board, strip_height, pad_h, available, text_rgb,
-               SUGGEST_EMOJI_BY_PAGE.get(page, SUGGEST_EMOJI))
+               SUGGEST_EMOJI_BY_PAGE.get(page, SUGGEST_EMOJI),
+               (W, height), tint, top, bottom, rim_top, rim_bottom, stroke)
 
     out = bg.copy()
     out.paste(board, (0, bg.height - height), board)
     return out
 
 
-def draw_strip(board, strip_height, pad_h, available, text_rgb, emoji):
+def draw_strip(board, strip_height, pad_h, available, text_rgb, emoji,
+               size, tint, a_top, a_bot, rim_top, rim_bot, stroke):
     """Three words, best in the centre, then two emoji on the right.
 
     With no emoji to show, the words take the whole strip rather than leaving a
@@ -244,6 +246,28 @@ def draw_strip(board, strip_height, pad_h, available, text_rgb, emoji):
     word_font = ImageFont.truetype(TEXT_FONT, int(strip_height * 0.40))
     words_width = available * 0.72 if emoji else available
     slot = words_width / 3
+    # The suggestions sit on the same glass as the keys.
+    inset = 2 * DENSITY
+    radius = strip_height * 0.32
+    slot = words_width / 3
+    panes = Image.new("RGBA", size, (0, 0, 0, 0))
+    for i in range(3):
+        rank = 0 if i == 1 else (1 if i == 0 else 2)
+        if rank >= len(SUGGEST_WORDS):
+            continue
+        x = pad_h + slot * i + inset
+        panes = blend(panes, glass_key(size, x, inset, slot - inset * 2,
+                                       strip_height - inset * 2, radius,
+                                       a_top, a_bot, rim_top, rim_bot, stroke, tint))
+    for i in range(min(2, len(emoji))):
+        x = pad_h + words_width + ((available - words_width) / 2) * i + inset
+        panes = blend(panes, glass_key(size, x, inset,
+                                       (available - words_width) / 2 - inset * 2,
+                                       strip_height - inset * 2, radius,
+                                       a_top, a_bot, rim_top, rim_bot, stroke, tint))
+    board.paste(panes, (0, 0), panes)
+    d = ImageDraw.Draw(board)
+
     for i in range(3):
         rank = 0 if i == 1 else (1 if i == 0 else 2)
         if rank >= len(SUGGEST_WORDS):

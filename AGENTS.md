@@ -222,6 +222,30 @@ Autocorrect reaches only `AUTOCORRECT_REACH` deep. Correcting a typo into a word
 nobody uses is worse than not correcting it, and it bounds the edit-distance
 work done at every word boundary.
 
+**The source word list has no apostrophes in it at all.** It spells contractions
+"dont", "im" and "thats", and is missing "aren't", "you're" and "couldn't"
+entirely, so `tools/gen_wordlist.py` puts them back. Bare forms that are not
+words are replaced in place; bare forms that ARE words — "its", "were", "well",
+"ill", "id", "lets" — are kept and the apostrophised form added beside them,
+because both spellings are real and losing either is worse than the misspelling.
+
+Three things follow from that, and each is load-bearing:
+
+- `matchesPrefix()` steps over apostrophes, so typing "dont" still finds
+  "don't". Nobody reaches for the apostrophe key mid-word, and without this the
+  suggestion disappears exactly when it is wanted.
+- Restoring a missing apostrophe beats any other single edit. "cant" was being
+  corrected to "can" — both one edit away, and "can" is commoner so it won on
+  score. Deleting a letter someone typed is a worse guess than adding the
+  punctuation they skipped.
+- That check runs *after* the known-word test, never before. Reversed, it turns
+  the possessive "its" into "it's" and the past tense "were" into "we're".
+
+**The suggestions are drawn on the same glass as the keys, through the same
+`drawPane()`.** Two copies of that drawing would drift the moment either was
+tuned, and the strip was previously the one thing on screen the opacity setting
+did not reach.
+
 **Publishing needs the signing secrets.** `publish-store.yml` refuses to run
 without them, on purpose: Android identifies an app by its signature, so a build
 signed with a different key is a different app and cannot update an installed
