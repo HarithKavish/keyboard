@@ -580,10 +580,9 @@ public final class GlassKeyboardService extends InputMethodService
             return;
         }
         final boolean adaptive = Appearance.isAdaptive(this);
-        final int opacity = Appearance.opacity(this);
         Boolean known = adaptive ? Appearance.knownBackdrop() : null;
-        keyboard.setAppearance(
-                Appearance.scale(opacity, known != null && known), known);
+        pushAppearance(Appearance.scale(Appearance.opacity(this),
+                known != null && known), known);
         if (!adaptive) {
             return;
         }
@@ -591,14 +590,26 @@ public final class GlassKeyboardService extends InputMethodService
                 new Appearance.Listener() {
                     @Override
                     public void onBackdropResolved(boolean light) {
-                        if (keyboard != null && Appearance.isAdaptive(
-                                GlassKeyboardService.this)) {
-                            keyboard.setAppearance(
-                                    Appearance.scale(Appearance.opacity(
-                                            GlassKeyboardService.this), light), light);
+                        if (Appearance.isAdaptive(GlassKeyboardService.this)) {
+                            pushAppearance(Appearance.scale(Appearance.opacity(
+                                    GlassKeyboardService.this), light), light);
                         }
                     }
                 });
+    }
+
+    /**
+     * The keys and the emoji panel together. They are the same glass, so a
+     * setting that reached only one of them would be a bug waiting to be
+     * reported -- as it was, before the panel drew panes at all.
+     */
+    private void pushAppearance(float scale, Boolean light) {
+        if (keyboard != null) {
+            keyboard.setAppearance(scale, light);
+        }
+        if (emojiPanel != null) {
+            emojiPanel.setAppearance(scale, light);
+        }
     }
 
     private void showEmojiPanel() {
@@ -606,6 +617,7 @@ public final class GlassKeyboardService extends InputMethodService
             return;
         }
         emojiPanel.refresh();
+        applyAppearance();
         emojiPanel.setVisibility(View.VISIBLE);
         // INVISIBLE rather than GONE: the keyboard is what gives the container
         // its height, and a GONE child would collapse the window.

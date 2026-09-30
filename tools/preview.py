@@ -325,9 +325,111 @@ def backdrop(kind):
     return Image.alpha_composite(img, layer)
 
 
+COLUMNS = 9
+SIDE_SHARE = 0.14
+PANEL_EMOJI = [
+    "\U0001F600", "\U0001F603", "\U0001F604", "\U0001F601", "\U0001F606",
+    "\U0001F605", "\U0001F923", "\U0001F602", "\U0001F642",
+    "\U0001F643", "\U0001F609", "\U0001F60A", "\U0001F607", "\U0001F970",
+    "\U0001F60D", "\U0001F929", "\U0001F618", "\U0001F617",
+    "\U0001F61A", "\U0001F619", "\U0001F60B", "\U0001F61B", "\U0001F61C",
+    "\U0001F92A", "\U0001F61D", "\U0001F911", "\U0001F917",
+    "\U0001F92D", "\U0001F92B", "\U0001F914", "\U0001F910", "\U0001F928",
+    "\U0001F610", "\U0001F611", "\U0001F636", "\U0001F60F",
+]
+TAB_LABELS = ["\U0001F600", "\U0001F43B", "\U0001F34E", "\u26BD",
+              "\U0001F697", "\U0001F4A1", "\u2764", "\U0001F6A9"]
+
+
+def draw_panel(bg, night):
+    """The emoji picker: a pane under every cell and every button, and one
+    category on screen rather than a single scroll through all of them."""
+    height = round(min(46 * DENSITY, SCREEN_H * 0.075) * sum(ROW_HEIGHTS["letters"])
+                   + 32 * DENSITY)
+    board = bg.crop((0, bg.height - height, W, bg.height)).convert("RGBA")
+
+    tint = (0, 0, 0) if night else (255, 255, 255)
+    top, bottom = (0x73, 0x8C) if night else (0xD9, 0xC4)
+    rim_top, rim_bottom = (0x99, 0x26) if night else (0xB3, 0x2B)
+    ink = (255, 255, 255) if night else (0x14, 0x16, 0x1C)
+    stroke = max(1, round(DENSITY * 0.75))
+    dim = lambda a: int(a * 0.6)
+
+    cell = W / COLUMNS
+    bar_h = 46 * DENSITY
+    side = W * SIDE_SHARE
+    header_h = 24 * DENSITY
+    inset = 2.5 * DENSITY
+    pane = cell - inset * 2
+    radius = pane * 0.28
+
+    panes = Image.new("RGBA", (W, height), (0, 0, 0, 0))
+    for i in range(len(PANEL_EMOJI)):
+        x = (i % COLUMNS) * cell + inset
+        y = header_h + (i // COLUMNS) * cell + inset
+        if y + pane > height - bar_h:
+            break
+        panes = blend(panes, glass_key((W, height), x, y, pane, pane, radius,
+                                       top, bottom, rim_top, rim_bottom, stroke, tint))
+
+    bi = 4 * DENSITY
+    bar_pane = bar_h - bi * 2
+    bar_radius = bar_pane * 0.34
+    bar_top = height - bar_h + bi
+    panes = blend(panes, glass_key((W, height), bi, bar_top, side - bi * 2,
+                                   bar_pane, bar_radius, dim(top), dim(bottom),
+                                   rim_top, rim_bottom, stroke, tint))
+    panes = blend(panes, glass_key((W, height), W - side + bi, bar_top,
+                                   side - bi * 2, bar_pane, bar_radius,
+                                   dim(top), dim(bottom), rim_top, rim_bottom,
+                                   stroke, tint))
+    tabs = len(TAB_LABELS)
+    tab_w = (W - 2 * side) / tabs
+    for i in range(tabs):
+        cx = side + tab_w * (i + 0.5)
+        w = min(tab_w - DENSITY * 2, bar_h)
+        a, b = (top, bottom) if i == 0 else (dim(top), dim(bottom))
+        panes = blend(panes, glass_key((W, height), cx - w / 2, bar_top, w,
+                                       bar_pane, bar_radius, a, b,
+                                       rim_top, rim_bottom, stroke, tint))
+    board.paste(panes, (0, 0), panes)
+
+    d = ImageDraw.Draw(board)
+    header_font = ImageFont.truetype(TEXT_FONT, int(12 * DENSITY))
+    emoji_font = ImageFont.truetype(EMOJI_FONT, int(cell * 0.60))
+    tab_font = ImageFont.truetype(EMOJI_FONT, int(min(cell, tab_w) * 0.46))
+    abc_font = ImageFont.truetype(TEXT_FONT, int(14 * DENSITY))
+
+    d.text((14 * DENSITY, header_h * 0.75), "Smileys", font=header_font,
+           anchor="ls", fill=ink + (0xB3,))
+    for i, glyph in enumerate(PANEL_EMOJI):
+        x = (i % COLUMNS) * cell
+        y = header_h + (i // COLUMNS) * cell
+        if y + cell > height - bar_h:
+            break
+        d.text((x + cell / 2, y + cell / 2), glyph, font=emoji_font,
+               anchor="mm", embedded_color=True)
+
+    cy = height - bar_h / 2
+    d.text((side / 2, cy), "ABC", font=abc_font, anchor="mm", fill=ink + (255,))
+    for i, glyph in enumerate(TAB_LABELS):
+        cx = side + tab_w * (i + 0.5)
+        d.text((cx, cy), glyph, font=tab_font, anchor="mm", embedded_color=True)
+    bx, s = W - side / 2, 9 * DENSITY
+    d.line([(bx - s * 0.95, cy), (bx - s * 0.38, cy - s * 0.64),
+            (bx + s * 0.95, cy - s * 0.64), (bx + s * 0.95, cy + s * 0.64),
+            (bx - s * 0.38, cy + s * 0.64), (bx - s * 0.95, cy)],
+           fill=ink + (255,), width=max(1, round(s * 0.16)), joint="curve")
+    return board
+
+
 for kind, night in (("dark", True), ("light", False)):
     for page in ("letters", "symbols"):
         img = draw_keyboard(backdrop(kind), page, night)
         name = "preview-%s-%s.png" % (kind, page)
         img.convert("RGB").save(pathlib.Path(__file__).parent / name, quality=92)
         print("wrote", name)
+    img = draw_panel(backdrop(kind), night)
+    name = "preview-%s-emoji.png" % kind
+    img.convert("RGB").save(pathlib.Path(__file__).parent / name, quality=92)
+    print("wrote", name)

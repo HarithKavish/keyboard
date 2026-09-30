@@ -98,8 +98,6 @@ final class GlassKeyboardView extends View {
      * Without it the panes sit flat against the wallpaper and stop reading as
      * glass at all.
      */
-    private static final int[] SHADOW_OFFSET_DP = {3, 2, 1};
-    private static final int[] SHADOW_ALPHA = {0x16, 0x12, 0x0E};
 
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint shadow = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -414,46 +412,26 @@ final class GlassKeyboardView extends View {
         if (letterRowHeight <= 0f) {
             return;
         }
-        int top;
-        int bottom;
-        if (night) {
-            // Dark panes over a dark backdrop, not pale ones. At the opacity
-            // needed to hide text underneath, a white pane leaves white glyphs
-            // sitting on near-white and unreadable -- so over dark the pane goes
-            // the other way and the glyphs stay light. The tint still carries
-            // the colour behind it; a red wallpaper gives a dark red key.
-            //
-            // Alpha rises towards the bottom here, which is the same "lit from
-            // above" reading as the white panes getting fainter downwards.
-            top = 0x73000000;
-            bottom = 0x8C000000;
-        } else {
-            top = 0xD9FFFFFF;
-            bottom = 0xC4FFFFFF;
-        }
-        top = Appearance.scaleAlpha(top, opacityScale);
-        bottom = Appearance.scaleAlpha(bottom, opacityScale);
-        // A shallow range on purpose. A steep top-to-bottom gradient is read as a
-        // moulded surface catching a light; a flatter one is read as frosted.
+        int top = Glass.top(night, opacityScale);
+        int bottom = Glass.bottom(night, opacityScale);
+        int rimA = Glass.rimTop(night, opacityScale);
+        int rimB = Glass.rimBottom(night, opacityScale);
+
         float keyHeight = letterRowHeight - gap;
-        bodyShader = vertical(keyHeight, top, bottom);
-        bodyShaderPressed = vertical(keyHeight, brighten(top), brighten(bottom));
+        bodyShader = Glass.vertical(keyHeight, top, bottom);
+        bodyShaderPressed = Glass.vertical(keyHeight, Glass.brighten(top),
+                Glass.brighten(bottom));
         // Command keys sit back a step so the letters read as the primary rows.
-        bodyShaderCommand = vertical(keyHeight, dim(top), dim(bottom));
-        // Bright along the top edge and faint but still present by the bottom.
-        // Letting it vanish entirely loses the pane's shape against a busy
-        // wallpaper; the shadow underneath does the rest of the separating.
-        rimShader = vertical(keyHeight,
-                Appearance.scaleAlpha(night ? 0x99FFFFFF : 0xB3FFFFFF, opacityScale),
-                Appearance.scaleAlpha(night ? 0x26FFFFFF : 0x2BFFFFFF, opacityScale));
+        bodyShaderCommand = Glass.vertical(keyHeight, Glass.dim(top), Glass.dim(bottom));
+        rimShader = Glass.vertical(keyHeight, rimA, rimB);
+
         float paneHeight = stripHeight - stripInset() * 2f;
-        stripShader = vertical(paneHeight, top, bottom);
-        stripShaderPressed = vertical(paneHeight, brighten(top), brighten(bottom));
-        stripRimShader = vertical(paneHeight,
-                Appearance.scaleAlpha(night ? 0x99FFFFFF : 0xB3FFFFFF, opacityScale),
-                Appearance.scaleAlpha(night ? 0x26FFFFFF : 0x2BFFFFFF, opacityScale));
-        // A hairline. Anything thicker outlines the key instead of lighting it.
-        rim.setStrokeWidth(Math.max(1f, density * 0.75f));
+        stripShader = Glass.vertical(paneHeight, top, bottom);
+        stripShaderPressed = Glass.vertical(paneHeight, Glass.brighten(top),
+                Glass.brighten(bottom));
+        stripRimShader = Glass.vertical(paneHeight, rimA, rimB);
+
+        rim.setStrokeWidth(Glass.rimWidth(density));
     }
 
     /** How far a suggestion's pane sits inside its slot, so they do not touch. */
@@ -468,37 +446,12 @@ final class GlassKeyboardView extends View {
      */
     private void drawPane(Canvas canvas, float x, float y, float w, float h,
                           float radius, Shader body, Shader paneRim) {
-        int save = canvas.save();
-        // The shaders are built for a gradient of a given height, so each pane is
-        // drawn at the origin and moved into place.
-        canvas.translate(x, y);
-        for (int i = 0; i < SHADOW_OFFSET_DP.length; i++) {
-            float off = SHADOW_OFFSET_DP[i] * density;
-            shadow.setColor(SHADOW_ALPHA[i] << 24);
-            canvas.drawRoundRect(off * 0.4f, off, w - off * 0.4f, h + off,
-                    radius, radius, shadow);
-        }
-        fill.setShader(body);
-        canvas.drawRoundRect(0f, 0f, w, h, radius, radius, fill);
-        rim.setShader(paneRim);
-        float half = rim.getStrokeWidth() / 2f;
-        canvas.drawRoundRect(half, half, w - half, h - half, radius, radius, rim);
-        canvas.restoreToCount(save);
+        Glass.drawPane(canvas, fill, rim, shadow, density, x, y, w, h,
+                radius, body, paneRim);
     }
 
-    private Shader vertical(float height, int top, int bottom) {
-        return new LinearGradient(0f, 0f, 0f, height, top, bottom, Shader.TileMode.CLAMP);
-    }
 
-    private static int brighten(int argb) {
-        int alpha = Math.min(255, (int) ((argb >>> 24) * 1.9f));
-        return (alpha << 24) | (argb & 0x00FFFFFF);
-    }
 
-    private static int dim(int argb) {
-        int alpha = (int) ((argb >>> 24) * 0.6f);
-        return (alpha << 24) | (argb & 0x00FFFFFF);
-    }
 
     @Override
     protected void onDraw(Canvas canvas) {

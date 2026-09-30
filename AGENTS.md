@@ -241,10 +241,25 @@ Three things follow from that, and each is load-bearing:
 - That check runs *after* the known-word test, never before. Reversed, it turns
   the possessive "its" into "it's" and the past tense "were" into "we're".
 
-**The suggestions are drawn on the same glass as the keys, through the same
-`drawPane()`.** Two copies of that drawing would drift the moment either was
-tuned, and the strip was previously the one thing on screen the opacity setting
-did not reach.
+**One glass, one place: `Glass.java`.** The keys, the suggestion strip and every
+emoji cell and picker button draw the same panes, so the colour decisions and the
+drawing live there once. Each view still builds its own shaders, because a
+vertical gradient is made for one specific height and a key, a suggestion and an
+emoji cell are three different heights — but none of them decides what the glass
+looks like. Two copies of that would drift the moment either was tuned, which is
+exactly how the strip and then the picker ended up as the only things on screen
+the opacity setting did not reach.
+
+`GlassKeyboardService.pushAppearance()` pushes the setting to both views for the
+same reason. Reaching only one of them is a bug waiting to be reported.
+
+**The emoji picker shows one category at a time.** The tabs are the only way
+between them: a flick cannot drift out of the category being browsed, and
+scrolling stops at the end of it rather than running on into the next. `page`
+holds the index and `pageName` holds the name, because picking a first emoji
+inserts a Recents section at the front and shifts every index along by one — the
+name does not move, so `restorePage()` finds the category again after any
+rebuild.
 
 **There is no launcher icon, and that is deliberate.** `SetupActivity` keeps
 `exported="true"` and its MAIN intent-filter but drops the LAUNCHER category, so

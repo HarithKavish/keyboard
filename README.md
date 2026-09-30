@@ -125,6 +125,13 @@ keyboard. On a light wallpaper the keys are made more solid, and the light
 treatment is chosen regardless of the system theme, because pale keys on a pale
 backdrop disappear no matter how opaque they are. That can be turned off.
 
+### The emoji picker
+
+One category at a time, chosen from the tabs along the bottom — not a single
+scroll running through all of them. Every emoji and every button sits on the same
+glass as the keys, at the same opacity, with the wallpaper showing between them
+rather than behind a solid panel.
+
 ### What it learns, and turning it off
 
 Words, emoji habits and corrections are learnt on the device and go nowhere else.
