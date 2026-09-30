@@ -560,6 +560,10 @@ public final class GlassKeyboardService extends InputMethodService
         // The word it stood in for is exactly the association worth keeping.
         String anchor = !context.current.isEmpty() ? context.current : context.previous;
         predictor.learnEmojiFor(anchor, emoji);
+        // Recents is about the emoji used, not about which control was tapped.
+        if (emojiPanel != null) {
+            emojiPanel.recordRecent(emoji);
+        }
         refreshSuggestions();
     }
 

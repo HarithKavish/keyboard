@@ -140,6 +140,11 @@ Delete a word the space bar completed for you and it takes the hint: that
 expansion is not offered again, and the refusal is remembered across restarts.
 The same already applied to autocorrect.
 
+Tap the magnifier at the end of the category heading to search. The heading
+becomes a back button, the matches run along the row beside it — scroll them
+sideways if there are many — and three rows of letters replace the grid to type
+with. Backspace edits what you typed; back returns to the category you left.
+
 ### What it learns, and turning it off
 
 Words, emoji habits and corrections are learnt on the device and go nowhere else.

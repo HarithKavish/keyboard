@@ -317,6 +317,24 @@ bracket drawn to the same bounding box, so matching by number left that one
 looking oversized beside the letters. `tools/preview.py` carries the same factor
 and has to be changed with it.
 
+**Search lives in the heading row.** The magnifier at its right turns the row
+into a back button, a sideways-scrolling strip of matches, and the query box
+where the magnifier was. The grid below becomes three rows of letters, because
+the keyboard is not on screen while the picker is — without them there is nothing
+to type a search with. Backspace edits the query rather than the text field while
+searching, and the category tabs are hidden, since they answer a question nobody
+is asking mid-search.
+
+`Emoji.search()` is a plain static function over the keyword table, so the
+ranking is unit-testable. It matches in three bands — exact keyword, then prefix,
+then contained — kept separate on purpose: collapsing them into one `contains()`
+buries the obvious answer under incidental matches.
+
+**Recents is about the emoji used, not the control tapped.** The strip commits
+emoji too, and those were never reaching Recents because the list only saw what
+was tapped inside the picker. `recordRecent()` exists for that, and the service
+calls it from `onEmojiSuggestion()`.
+
 **The emoji picker shows one category at a time.** The tabs are the only way
 between them: a flick cannot drift out of the category being browsed, and
 scrolling stops at the end of it rather than running on into the next. `page`

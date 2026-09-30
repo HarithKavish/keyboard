@@ -87,6 +87,23 @@ final class EmojiPanelView extends View {
      */
     private String pageName;
 
+    /** The three rows typed into while searching. No shift, no punctuation. */
+    private static final String[] SEARCH_ROWS = {
+        "qwertyuiop", "asdfghjkl", "zxcvbnm",
+    };
+    /** More matches than this and the rest are not worth scrolling to. */
+    private static final int MAX_RESULTS = 60;
+
+    private boolean searching;
+    private final StringBuilder query = new StringBuilder();
+    private final List<String> results = new ArrayList<>();
+    /** How far the result strip is scrolled sideways. */
+    private float resultScroll;
+    private int pressedResult = -1;
+    private int pressedLetter = -1;
+    private boolean pressedBack;
+    private boolean draggingResults;
+
     private boolean night;
     private float opacityScale = 1f;
     /** TRUE or FALSE once the wallpaper has been read; null means follow the system. */
@@ -112,6 +129,8 @@ final class EmojiPanelView extends View {
     private float downX;
     private float downY;
     private float lastY;
+    /** Sideways companion to lastY, for dragging the result strip. */
+    private float lastX;
     private boolean scrolling;
     private int pressedTab = -1;
     private boolean pressedAbc;
@@ -198,6 +217,33 @@ final class EmojiPanelView extends View {
         return density * 3f;
     }
 
+    /** The back button, or the heading, at the left of the top row. */
+    private float headingButtonWidth() {
+        return headerHeight - headerInset() * 2f;
+    }
+
+    /** The query box, at the right of the top row where the magnifier sits. */
+    private float searchBoxWidth() {
+        return (getWidth() - padH * 2f) * 0.30f;
+    }
+
+    private float resultsLeft() {
+        return padH + headingButtonWidth() + headerInset() * 2f;
+    }
+
+    private float resultsRight() {
+        return getWidth() - padH - searchBoxWidth() - headerInset() * 2f;
+    }
+
+    /** One result's slot is square, on the row's height. */
+    private float resultCell() {
+        return headerHeight - headerInset() * 2f;
+    }
+
+    private float resultsSpan() {
+        return Math.max(0f, resultsRight() - resultsLeft());
+    }
+
     /** The top of the scrolling grid: everything above it is pinned. */
     private float gridTop() {
         return headerHeight;
@@ -262,6 +308,9 @@ final class EmojiPanelView extends View {
 
     /** Called when the panel is shown, in case the strip added a recent. */
     void refresh() {
+        if (searching) {
+            exitSearch();
+        }
         loadRecents();
         if (cell > 0f) {
             measurePage();
@@ -296,6 +345,47 @@ final class EmojiPanelView extends View {
         pageName = sectionItems.isEmpty() ? null : sectionNames.get(page);
     }
 
+    private void enterSearch() {
+        searching = true;
+        query.setLength(0);
+        results.clear();
+        resultScroll = 0f;
+        flingVelocity = 0f;
+        removeCallbacks(flinger);
+        invalidate();
+    }
+
+    /** Back to the category that was open before the magnifier was tapped. */
+    private void exitSearch() {
+        searching = false;
+        query.setLength(0);
+        results.clear();
+        resultScroll = 0f;
+        pressedResult = -1;
+        pressedLetter = -1;
+        measurePage();
+        setScroll(scroll);
+        invalidate();
+    }
+
+    private void editQuery(char letter, boolean delete) {
+        if (delete) {
+            if (query.length() == 0) {
+                return;
+            }
+            query.setLength(query.length() - 1);
+        } else {
+            if (query.length() >= 24) {
+                return;
+            }
+            query.append(letter);
+        }
+        results.clear();
+        results.addAll(Emoji.search(query.toString(), MAX_RESULTS));
+        resultScroll = 0f;
+        invalidate();
+    }
+
     private void setPage(int index) {
         if (index < 0 || index >= sectionItems.size()) {
             return;
@@ -306,6 +396,21 @@ final class EmojiPanelView extends View {
         flingVelocity = 0f;
         removeCallbacks(flinger);
         scroll = 0f;
+        invalidate();
+    }
+
+    /**
+     * Records an emoji picked somewhere other than this panel.
+     *
+     * <p>The suggestion strip commits emoji too, and those were not reaching
+     * Recents -- the list only ever saw what was tapped in here, which made
+     * Recents a record of one route to an emoji rather than of the emoji used.
+     */
+    void recordRecent(String emoji) {
+        if (emoji == null || emoji.isEmpty()) {
+            return;
+        }
+        noteRecent(emoji);
         invalidate();
     }
 
@@ -383,6 +488,12 @@ final class EmojiPanelView extends View {
         }
         drawHeading(canvas);
 
+        if (searching) {
+            drawSearchKeys(canvas);
+            drawBottomBar(canvas);
+            return;
+        }
+
         int save = canvas.save();
         // Clipped below the heading, so rows scroll under it rather than over it.
         canvas.clipRect(0f, gridTop(), getWidth(), viewportHeight());
@@ -419,13 +530,129 @@ final class EmojiPanelView extends View {
     private void drawHeading(Canvas canvas) {
         float hi = headerInset();
         float pane = headerHeight - hi * 2f;
-        Glass.drawPane(canvas, fill, rim, shadow, density, padH, hi,
-                getWidth() - padH * 2f, pane, pane * 0.34f,
-                headerShader, headerRimShader);
-        float baseline = headerHeight / 2f
-                - (headerPaint.descent() + headerPaint.ascent()) / 2f;
-        canvas.drawText(sectionNames.get(page), padH + 14f * density, baseline,
-                headerPaint);
+        float radius = pane * 0.34f;
+        float cy = headerHeight / 2f;
+        float baseline = cy - (headerPaint.descent() + headerPaint.ascent()) / 2f;
+
+        if (!searching) {
+            // Heading across the row, with the magnifier boxed at the far end.
+            float boxW = headingButtonWidth();
+            float left = padH;
+            float nameW = getWidth() - padH * 2f - boxW - hi * 2f;
+            Glass.drawPane(canvas, fill, rim, shadow, density, left, hi,
+                    nameW, pane, radius, headerShader, headerRimShader);
+            canvas.drawText(sectionNames.get(page), left + 14f * density, baseline,
+                    headerPaint);
+            float boxLeft = getWidth() - padH - boxW;
+            Glass.drawPane(canvas, fill, rim, shadow, density, boxLeft, hi,
+                    boxW, pane, radius,
+                    pressedBack ? barShaderPressed : headerShader, headerRimShader);
+            drawMagnifier(canvas, boxLeft + boxW / 2f, cy, pane * 0.26f);
+            return;
+        }
+
+        float backW = headingButtonWidth();
+        Glass.drawPane(canvas, fill, rim, shadow, density, padH, hi, backW, pane,
+                radius, pressedBack ? barShaderPressed : headerShader,
+                headerRimShader);
+        drawBackArrow(canvas, padH + backW / 2f, cy, pane * 0.24f);
+
+        drawResults(canvas, hi, pane, radius);
+
+        float boxW = searchBoxWidth();
+        float boxLeft = getWidth() - padH - boxW;
+        Glass.drawPane(canvas, fill, rim, shadow, density, boxLeft, hi, boxW, pane,
+                radius, headerShader, headerRimShader);
+        String shown = query.length() == 0
+                ? getResources().getString(R.string.emoji_search) : query.toString();
+        headerPaint.setAlpha(query.length() == 0 ? 0x80 : 0xFF);
+        canvas.drawText(shown, boxLeft + 10f * density, baseline, headerPaint);
+        headerPaint.setAlpha(0xFF);
+    }
+
+    /**
+     * The matches, between the back button and the query. Clipped rather than
+     * wrapped: there is one row for them, and more than fits scrolls sideways.
+     */
+    private void drawResults(Canvas canvas, float hi, float pane, float radius) {
+        float span = resultsSpan();
+        if (span <= 0f || results.isEmpty()) {
+            return;
+        }
+        int save = canvas.save();
+        canvas.clipRect(resultsLeft(), hi, resultsRight(), hi + pane);
+        float cell = resultCell();
+        emojiPaint.setTextSize(cell * 0.62f);
+        for (int i = 0; i < results.size(); i++) {
+            float x = resultsLeft() + i * cell - resultScroll;
+            if (x + cell < resultsLeft() || x > resultsRight()) {
+                continue;
+            }
+            float in = density * 1.5f;
+            Glass.drawPane(canvas, fill, rim, shadow, density, x + in, hi + in,
+                    cell - in * 2f, pane - in * 2f, radius * 0.8f,
+                    pressedResult == i ? barShaderPressed : cellShader,
+                    cellRimShader);
+            float baseline = hi + pane / 2f
+                    - (emojiPaint.descent() + emojiPaint.ascent()) / 2f;
+            canvas.drawText(results.get(i), x + cell / 2f, baseline, emojiPaint);
+        }
+        canvas.restoreToCount(save);
+    }
+
+    private void drawMagnifier(Canvas canvas, float cx, float cy, float r) {
+        icon.setStrokeWidth(Math.max(density, r * 0.22f));
+        canvas.drawCircle(cx - r * 0.18f, cy - r * 0.18f, r * 0.72f, icon);
+        iconPath.reset();
+        iconPath.moveTo(cx + r * 0.36f, cy + r * 0.36f);
+        iconPath.lineTo(cx + r * 0.95f, cy + r * 0.95f);
+        canvas.drawPath(iconPath, icon);
+    }
+
+    private void drawBackArrow(Canvas canvas, float cx, float cy, float r) {
+        icon.setStrokeWidth(Math.max(density, r * 0.24f));
+        iconPath.reset();
+        iconPath.moveTo(cx + r * 0.5f, cy - r);
+        iconPath.lineTo(cx - r * 0.5f, cy);
+        iconPath.lineTo(cx + r * 0.5f, cy + r);
+        canvas.drawPath(iconPath, icon);
+    }
+
+    /**
+     * Three rows of letters where the emoji grid was. The keyboard is not on
+     * screen while the picker is, so without these there is nothing to type a
+     * search with.
+     */
+    private void drawSearchKeys(Canvas canvas) {
+        float top = gridTop();
+        float rowHeight = gridHeight() / SEARCH_ROWS.length;
+        float unit = (getWidth() - padH * 2f) / 10f;
+        float in = density * 2.5f;
+        tabPaint.setTextSize(Math.min(rowHeight * 0.38f, 14f * density));
+        float pane = rowHeight - in * 2f;
+        Shader body = Glass.vertical(pane, Glass.top(night, opacityScale),
+                Glass.bottom(night, opacityScale));
+        Shader bodyDown = Glass.vertical(pane, Glass.brighten(Glass.top(night, opacityScale)),
+                Glass.brighten(Glass.bottom(night, opacityScale)));
+        Shader edge = Glass.vertical(pane, Glass.rimTop(night, opacityScale),
+                Glass.rimBottom(night, opacityScale));
+        int index = 0;
+        for (int r = 0; r < SEARCH_ROWS.length; r++) {
+            String row = SEARCH_ROWS[r];
+            float rowWidth = row.length() * unit;
+            float x0 = padH + ((getWidth() - padH * 2f) - rowWidth) / 2f;
+            float y = top + r * rowHeight;
+            for (int c = 0; c < row.length(); c++, index++) {
+                float x = x0 + c * unit;
+                Glass.drawPane(canvas, fill, rim, shadow, density, x + in, y + in,
+                        unit - in * 2f, pane, pane * 0.26f,
+                        pressedLetter == index ? bodyDown : body, edge);
+                float baseline = y + rowHeight / 2f
+                        - (tabPaint.descent() + tabPaint.ascent()) / 2f;
+                canvas.drawText(String.valueOf(row.charAt(c)), x + unit / 2f,
+                        baseline, tabPaint);
+            }
+        }
     }
 
     private void drawBottomBar(Canvas canvas) {
@@ -443,7 +670,9 @@ final class EmojiPanelView extends View {
         canvas.drawText("ABC", padH + sideWidth / 2f,
                 cy - (tabPaint.descent() + tabPaint.ascent()) / 2f, tabPaint);
 
-        int tabs = sectionItems.size();
+        // No category tabs while searching: they answer a question nobody is
+        // asking mid-search, and the back button is the way out.
+        int tabs = searching ? 0 : sectionItems.size();
         if (tabs > 0) {
             float width = (getWidth() - 2f * padH - 2f * sideWidth) / tabs;
             tabPaint.setTextSize(Math.min(cell, width) * 0.46f);
@@ -535,12 +764,21 @@ final class EmojiPanelView extends View {
                     tracker.clear();
                 }
                 tracker.addMovement(event);
+                if (y < headerHeight) {
+                    pressHeading(x);
+                    return true;
+                }
+                if (searching && y < viewportHeight()) {
+                    pressedLetter = letterAt(x, y);
+                    invalidate();
+                    return true;
+                }
                 if (y >= getHeight() - barHeight) {
                     if (x < padH + sideWidth) {
                         pressedAbc = true;
                     } else if (x > getWidth() - padH - sideWidth) {
                         pressedBackspace = true;
-                    } else {
+                    } else if (!searching) {
                         pressedTab = tabAt(x);
                     }
                     invalidate();
@@ -551,7 +789,22 @@ final class EmojiPanelView extends View {
                 if (tracker != null) {
                     tracker.addMovement(event);
                 }
-                if (pressedTab >= 0 || pressedAbc || pressedBackspace) {
+                if (draggingResults) {
+                    float span = resultsSpan();
+                    float max = Math.max(0f, results.size() * resultCell() - span);
+                    resultScroll = Math.max(0f, Math.min(max, resultScroll - (x - lastX)));
+                    lastX = x;
+                    if (Math.abs(x - downX) > touchSlop) {
+                        pressedResult = -1;
+                    }
+                    invalidate();
+                    return true;
+                }
+                if (pressedTab >= 0 || pressedAbc || pressedBackspace
+                        || pressedBack || pressedLetter >= 0) {
+                    return true;
+                }
+                if (searching) {
                     return true;
                 }
                 if (!scrolling && Math.abs(y - downY) > touchSlop) {
@@ -564,6 +817,21 @@ final class EmojiPanelView extends View {
                 return true;
 
             case MotionEvent.ACTION_UP:
+                if (handleHeadingRelease(x, y)) {
+                    releaseTracker();
+                    return true;
+                }
+                if (pressedLetter >= 0) {
+                    int letter = pressedLetter;
+                    pressedLetter = -1;
+                    invalidate();
+                    if (letterAt(x, y) == letter) {
+                        performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+                        editQuery(letterFor(letter), false);
+                    }
+                    releaseTracker();
+                    return true;
+                }
                 if (handleBarRelease(x, y)) {
                     releaseTracker();
                     return true;
@@ -579,6 +847,10 @@ final class EmojiPanelView extends View {
                 return true;
 
             case MotionEvent.ACTION_CANCEL:
+                pressedBack = false;
+                pressedLetter = -1;
+                pressedResult = -1;
+                draggingResults = false;
                 clearBarPresses();
                 releaseTracker();
                 invalidate();
@@ -606,15 +878,114 @@ final class EmojiPanelView extends View {
             }
         } else if (wasBackspace && inBar && x > getWidth() - padH - sideWidth) {
             performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
-            if (listener != null) {
+            if (searching) {
+                // While searching this is the query's backspace, not the field's.
+                editQuery('\0', true);
+            } else if (listener != null) {
                 listener.onBackspace();
             }
         } else if (wasTab >= 0 && inBar && tabAt(x) == wasTab
                 && wasTab < sectionItems.size()) {
             performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+            if (searching) {
+                exitSearch();
+            }
             setPage(wasTab);
         }
         return true;
+    }
+
+    private void pressHeading(float x) {
+        pressedBack = false;
+        pressedResult = -1;
+        draggingResults = false;
+        if (!searching) {
+            pressedBack = x >= getWidth() - padH - headingButtonWidth();
+            invalidate();
+            return;
+        }
+        if (x <= padH + headingButtonWidth()) {
+            pressedBack = true;
+        } else if (x >= resultsLeft() && x <= resultsRight()) {
+            draggingResults = true;
+            pressedResult = resultAt(x);
+            lastX = x;
+        }
+        invalidate();
+    }
+
+    private boolean handleHeadingRelease(float x, float y) {
+        boolean wasBack = pressedBack;
+        int wasResult = pressedResult;
+        boolean wasDragging = draggingResults;
+        if (!wasBack && wasResult < 0 && !wasDragging) {
+            return false;
+        }
+        pressedBack = false;
+        pressedResult = -1;
+        draggingResults = false;
+        invalidate();
+        boolean inRow = y < headerHeight;
+        if (wasBack && inRow) {
+            performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+            if (searching) {
+                exitSearch();
+            } else {
+                enterSearch();
+            }
+        } else if (wasResult >= 0 && inRow && resultAt(x) == wasResult
+                && wasResult < results.size()) {
+            performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+            String picked = results.get(wasResult);
+            noteRecent(picked);
+            if (listener != null) {
+                listener.onEmojiPicked(picked);
+            }
+            invalidate();
+        }
+        return true;
+    }
+
+    private int resultAt(float x) {
+        if (results.isEmpty() || x < resultsLeft() || x > resultsRight()) {
+            return -1;
+        }
+        int index = (int) ((x - resultsLeft() + resultScroll) / resultCell());
+        return index >= 0 && index < results.size() ? index : -1;
+    }
+
+    private int letterAt(float x, float y) {
+        if (!searching || y < gridTop() || y >= viewportHeight()) {
+            return -1;
+        }
+        float rowHeight = gridHeight() / SEARCH_ROWS.length;
+        int r = (int) ((y - gridTop()) / rowHeight);
+        if (r < 0 || r >= SEARCH_ROWS.length) {
+            return -1;
+        }
+        float unit = (getWidth() - padH * 2f) / 10f;
+        String row = SEARCH_ROWS[r];
+        float x0 = padH + ((getWidth() - padH * 2f) - row.length() * unit) / 2f;
+        int c = (int) ((x - x0) / unit);
+        if (c < 0 || c >= row.length()) {
+            return -1;
+        }
+        int index = 0;
+        for (int i = 0; i < r; i++) {
+            index += SEARCH_ROWS[i].length();
+        }
+        return index + c;
+    }
+
+    private char letterFor(int index) {
+        int at = index;
+        for (String row : SEARCH_ROWS) {
+            if (at < row.length()) {
+                return row.charAt(at);
+            }
+            at -= row.length();
+        }
+        return 'a';
     }
 
     private void clearBarPresses() {

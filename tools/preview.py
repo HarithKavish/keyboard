@@ -451,6 +451,121 @@ def draw_panel(bg, night):
     return board
 
 
+SEARCH_ROWS = ["qwertyuiop", "asdfghjkl", "zxcvbnm"]
+SEARCH_HITS = ["🐈", "🐱", "😺", "😹",
+               "😻", "😼", "😽", "🙀"]
+
+
+def draw_search(bg, night):
+    """The picker in search mode: back button, matches, query, and letters."""
+    strip_height = 38 * DENSITY
+    keys_height = min(46 * DENSITY, SCREEN_H * 0.075) * sum(ROW_HEIGHTS["letters"])
+    height = round(keys_height + strip_height)
+    board = bg.crop((0, bg.height - height, W, bg.height)).convert("RGBA")
+
+    tint = (0, 0, 0) if night else (255, 255, 255)
+    top, bottom = (0x73, 0x8C) if night else (0xD9, 0xC4)
+    rim_top, rim_bottom = (0x99, 0x26) if night else (0xB3, 0x2B)
+    ink = (255, 255, 255) if night else (0x14, 0x16, 0x1C)
+    stroke = max(1, round(DENSITY * 0.75))
+    dim = lambda a: int(a * 0.6)
+
+    pad_h = 14 * DENSITY
+    bar_h = 46 * DENSITY
+    side = (W - 2 * pad_h) * SIDE_SHARE
+    header_h = 30 * DENSITY
+    hi = 3 * DENSITY
+    pane = header_h - hi * 2
+    top0 = strip_height
+
+    panes = Image.new("RGBA", (W, height), (0, 0, 0, 0))
+    back_w = pane
+    panes = blend(panes, glass_key((W, height), pad_h, top0 + hi, back_w, pane,
+                                   pane * 0.34, dim(top), dim(bottom),
+                                   rim_top, rim_bottom, stroke, tint))
+    box_w = (W - pad_h * 2) * 0.30
+    box_left = W - pad_h - box_w
+    panes = blend(panes, glass_key((W, height), box_left, top0 + hi, box_w, pane,
+                                   pane * 0.34, dim(top), dim(bottom),
+                                   rim_top, rim_bottom, stroke, tint))
+    res_left = pad_h + back_w + hi * 2
+    res_right = box_left - hi * 2
+    cell = pane
+    for i in range(len(SEARCH_HITS)):
+        x = res_left + i * cell
+        if x + cell > res_right:
+            break
+        panes = blend(panes, glass_key((W, height), x + 1.5 * DENSITY,
+                                       top0 + hi + 1.5 * DENSITY,
+                                       cell - 3 * DENSITY, pane - 3 * DENSITY,
+                                       pane * 0.27, top, bottom,
+                                       rim_top, rim_bottom, stroke, tint))
+
+    grid_top = top0 + header_h
+    grid_h = height - bar_h - grid_top
+    row_h = grid_h / 3
+    unit = (W - pad_h * 2) / 10
+    inset = 2.5 * DENSITY
+    for r, row in enumerate(SEARCH_ROWS):
+        x0 = pad_h + ((W - pad_h * 2) - len(row) * unit) / 2
+        y = grid_top + r * row_h
+        for c in range(len(row)):
+            panes = blend(panes, glass_key((W, height), x0 + c * unit + inset,
+                                           y + inset, unit - inset * 2,
+                                           row_h - inset * 2, row_h * 0.26,
+                                           top, bottom, rim_top, rim_bottom,
+                                           stroke, tint))
+    bi = 4 * DENSITY
+    bar_pane = bar_h - bi * 2
+    bar_top = height - bar_h + bi
+    for x in (pad_h + bi, W - pad_h - side + bi):
+        panes = blend(panes, glass_key((W, height), x, bar_top, side - bi * 2,
+                                       bar_pane, bar_pane * 0.30, dim(top),
+                                       dim(bottom), rim_top, rim_bottom,
+                                       stroke, tint))
+    board.paste(panes, (0, 0), panes)
+
+    d = ImageDraw.Draw(board)
+    cy = top0 + header_h / 2
+    r = pane * 0.24
+    d.line([(pad_h + back_w / 2 + r * 0.5, cy - r),
+            (pad_h + back_w / 2 - r * 0.5, cy),
+            (pad_h + back_w / 2 + r * 0.5, cy + r)],
+           fill=ink + (255,), width=max(1, round(r * 0.24)), joint="curve")
+    qfont = ImageFont.truetype(TEXT_FONT, int(12 * DENSITY))
+    d.text((box_left + 10 * DENSITY, cy), "cat", font=qfont, anchor="lm",
+           fill=ink + (255,))
+    efont = ImageFont.truetype(EMOJI_FONT, int(cell * 0.62))
+    for i, glyph in enumerate(SEARCH_HITS):
+        x = res_left + i * cell
+        if x + cell > res_right:
+            break
+        d.text((x + cell / 2, cy), glyph, font=efont, anchor="mm",
+               embedded_color=True)
+    lfont = ImageFont.truetype(TEXT_FONT, int(min(row_h * 0.38, 14 * DENSITY)))
+    for r2, row in enumerate(SEARCH_ROWS):
+        x0 = pad_h + ((W - pad_h * 2) - len(row) * unit) / 2
+        y = grid_top + r2 * row_h
+        for c, ch in enumerate(row):
+            d.text((x0 + c * unit + unit / 2, y + row_h / 2), ch, font=lfont,
+                   anchor="mm", fill=ink + (255,))
+    abcf = ImageFont.truetype(TEXT_FONT, int(14 * DENSITY))
+    d.text((pad_h + side / 2, height - bar_h / 2), "ABC", font=abcf,
+           anchor="mm", fill=ink + (255,))
+    bx, sz = W - pad_h - side / 2, 9 * DENSITY
+    d.line([(bx - sz * 0.95, height - bar_h / 2),
+            (bx - sz * 0.38, height - bar_h / 2 - sz * 0.64),
+            (bx + sz * 0.95, height - bar_h / 2 - sz * 0.64),
+            (bx + sz * 0.95, height - bar_h / 2 + sz * 0.64),
+            (bx - sz * 0.38, height - bar_h / 2 + sz * 0.64),
+            (bx - sz * 0.95, height - bar_h / 2)],
+           fill=ink + (255,), width=max(1, round(sz * 0.16)), joint="curve")
+
+    draw_strip(board, strip_height, pad_h, W - 2 * pad_h, ink, SUGGEST_EMOJI,
+               (W, height), tint, top, bottom, rim_top, rim_bottom, stroke)
+    return board
+
+
 for kind, night in (("dark", True), ("light", False)):
     for page in ("letters", "symbols"):
         img = draw_keyboard(backdrop(kind), page, night)
@@ -459,5 +574,9 @@ for kind, night in (("dark", True), ("light", False)):
         print("wrote", name)
     img = draw_panel(backdrop(kind), night)
     name = "preview-%s-emoji.png" % kind
+    img.convert("RGB").save(pathlib.Path(__file__).parent / name, quality=92)
+    print("wrote", name)
+    img = draw_search(backdrop(kind), night)
+    name = "preview-%s-search.png" % kind
     img.convert("RGB").save(pathlib.Path(__file__).parent / name, quality=92)
     print("wrote", name)

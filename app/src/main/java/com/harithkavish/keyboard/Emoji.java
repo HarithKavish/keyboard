@@ -1285,6 +1285,43 @@ final class Emoji {
     };
 
     /** Tab glyphs, in the order the picker shows them. Recents is prepended by the view. */
+    /**
+     * Every emoji whose keyword matches, best first, with duplicates removed.
+     *
+     * <p>Ranked in three bands: an exact keyword, then a keyword starting with
+     * what was typed, then a keyword appearing anywhere inside. The last is
+     * loose on purpose -- searching "cat" should still reach a scaredy cat --
+     * and it is why the bands are kept separate rather than merged into one
+     * contains() test that would bury the obvious answer.
+     *
+     * <p>A linear walk of the table. It is about a thousand pairs, which is
+     * nothing next to a keystroke, and an index would have to be built and kept.
+     */
+    static java.util.List<String> search(String query, int limit) {
+        java.util.List<String> out = new java.util.ArrayList<>();
+        if (query == null) {
+            return out;
+        }
+        String key = query.trim().toLowerCase(java.util.Locale.US);
+        if (key.isEmpty()) {
+            return out;
+        }
+        java.util.Set<String> seen = new java.util.LinkedHashSet<>();
+        for (int band = 0; band < 3 && seen.size() < limit; band++) {
+            for (int i = 0; i + 1 < KEYWORDS.length && seen.size() < limit; i += 2) {
+                String word = KEYWORDS[i];
+                boolean hit = band == 0 ? word.equals(key)
+                        : band == 1 ? word.startsWith(key)
+                        : word.contains(key);
+                if (hit) {
+                    seen.add(KEYWORDS[i + 1]);
+                }
+            }
+        }
+        out.addAll(seen);
+        return out;
+    }
+
     static final String[] TAB_LABELS = {
         "\ud83d\ude42", "\ud83c\udf3f", "\ud83c\udf75", "\u26bd", "\ud83d\ude97", "\ud83d\udca1",
         "\ud83d\udd23", "\ud83c\udff3\ufe0f",
