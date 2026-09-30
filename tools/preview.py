@@ -9,20 +9,24 @@ build of this keyboard shipped as a black slab with all three passing.
 
     python tools/preview.py     # writes tools/preview-<theme>-<page>.png
 
-Needs Pillow. Two traps already caught here, worth not reintroducing: drawing a
-translucent shape straight onto an RGBA canvas REPLACES its alpha instead of
-blending it, and the rim is a vertical gradient on the device, not a flat
-outline. Both quietly made the glass impossible to judge."""
+Needs Pillow. Three traps already caught here, worth not reintroducing: drawing
+a translucent shape straight onto an RGBA canvas REPLACES its alpha instead of
+blending it, the rim is a vertical gradient on the device rather than a flat
+outline, and rows are no longer all the same height.
+"""
 import pathlib
 
-from PIL import Image, ImageChops, ImageDraw, ImageFont
-import sys
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
 W, DENSITY = 1080, 2.75
 SCREEN_H = 2400
-ROW_UNITS, ROWS = 10.0, 4
+ROW_UNITS = 10.0
 
-SHIFT, BACKSPACE, ENTER, PAGE_SYMBOLS, PAGE_LETTERS, PAGE_MORE = -1, -2, -3, -4, -5, -6
+SHIFT, BACKSPACE, ENTER = -1, -2, -3
+PAGE_SYMBOLS, PAGE_LETTERS, PAGE_MORE, EMOJI = -4, -5, -6, -7
+
+EMOJI_FONT = "C:/Windows/Fonts/seguiemj.ttf"
+TEXT_FONT = "C:/Windows/Fonts/segoeui.ttf"
 
 
 def row(chars):
@@ -30,21 +34,27 @@ def row(chars):
 
 
 def command_row(left_code, left_label, chars):
-    return [(left_code, left_label, 1.5)] + row(chars) + [(BACKSPACE, "\u232B", 1.5)]
+    return [(left_code, left_label, 1.5)] + row(chars) + [(BACKSPACE, "", 1.5)]
 
 
 def bottom_row(page_code, page_label):
-    return [(page_code, page_label, 1.5), (ord(","), ",", 1.0),
-            (ord(" "), "", 5.0), (ord("."), ".", 1.0), (ENTER, "\u23CE", 1.5)]
+    return [(page_code, page_label, 1.5), (EMOJI, "", 1.0), (ord(","), ",", 1.0),
+            (ord("@"), "@", 1.0), (ord(" "), "", 3.0), (ord("."), ".", 1.0),
+            (ENTER, "", 1.5)]
 
 
 PAGES = {
-    "letters": [row("qwertyuiop"), row("asdfghjkl"),
-                command_row(SHIFT, "\u21E7", "zxcvbnm"), bottom_row(PAGE_SYMBOLS, "?123")],
+    "letters": [row("1234567890"), row("qwertyuiop"), row("asdfghjkl"),
+                command_row(SHIFT, "", "zxcvbnm"), bottom_row(PAGE_SYMBOLS, "?123")],
     "symbols": [row("1234567890"), row("@#$%&-+()"),
-                command_row(PAGE_MORE, "=\\<", "*\"':;!?"), bottom_row(PAGE_LETTERS, "ABC")],
+                command_row(PAGE_MORE, "=\\<", "*\"':;!?"),
+                bottom_row(PAGE_LETTERS, "ABC")],
 }
+ROW_HEIGHTS = {"letters": [0.66, 1.0, 1.0, 1.0, 1.0], "symbols": [1.0, 1.0, 1.0, 1.0]}
 
+# What the strip would be offering part way through a word.
+SUGGEST_WORDS = ["keyboard", "keep", "key"]
+SUGGEST_EMOJI = ["\U0001F680", "\u2728"]
 
 
 def draw_icon(d, code, x, y, w, h, colour, density, caps=False):
@@ -71,6 +81,22 @@ def draw_icon(d, code, x, y, w, h, colour, density, caps=False):
                fill=colour, width=int(lw))
         d.line([(cx + s * 0.46, cy - s * 0.22), (cx + s * 0.02, cy + s * 0.22)],
                fill=colour, width=int(lw))
+    elif code == EMOJI:
+        r = s * 0.62
+        d.ellipse([cx - r, cy - r, cx + r, cy + r], outline=colour, width=int(lw))
+        eye_r = max(density * 0.8, s * 0.08)
+        for ex in (-s * 0.24, s * 0.24):
+            d.ellipse([cx + ex - eye_r, cy - s * 0.18 - eye_r,
+                       cx + ex + eye_r, cy - s * 0.18 + eye_r], fill=colour)
+        # Quadratic smile, sampled -- PIL has no quadTo.
+        pts = []
+        for i in range(13):
+            t = i / 12
+            px = (1 - t) ** 2 * (cx - s * 0.28) + 2 * (1 - t) * t * cx + t ** 2 * (cx + s * 0.28)
+            py = ((1 - t) ** 2 * (cy + s * 0.14) + 2 * (1 - t) * t * (cy + s * 0.46)
+                  + t ** 2 * (cy + s * 0.14))
+            pts.append((px, py))
+        d.line(pts, fill=colour, width=int(lw), joint="curve")
     elif code == ENTER:
         d.line([(cx + s * 0.62, cy - s * 0.58), (cx + s * 0.62, cy + s * 0.22),
                 (cx - s * 0.52, cy + s * 0.22)], fill=colour, width=int(lw), joint="curve")
@@ -94,118 +120,148 @@ def ramped_outline(size, x, y, w, h, radius, stroke, rgb, a_top, a_bot):
     return layer
 
 
-def layout(keys_rows, width, height):
-    pad_h, pad_v = 14 * DENSITY, 7 * DENSITY
+def layout(keys_rows, heights, width, height, strip_height):
+    """Ports layoutKeys(): no vertical padding, per-row heights."""
+    pad_h = 14 * DENSITY
     gap = 6 * DENSITY
     available = width - 2 * pad_h
-    row_height = (height - 2 * pad_v) / len(keys_rows)
-    key_height = row_height - gap
+    letter_row = (height - strip_height) / sum(heights)
     reference_unit = (available - gap * (ROW_UNITS - 1)) / ROW_UNITS
 
-    placed, y = [], pad_v
-    for r in keys_rows:
-        total_weight = sum(k[2] for k in r)
+    placed, y = [], strip_height
+    for r, keys in enumerate(keys_rows):
+        row_height = letter_row * heights[r]
+        total_weight = sum(k[2] for k in keys)
         if total_weight >= ROW_UNITS:
-            unit = (available - gap * (len(r) - 1)) / total_weight
+            unit = (available - gap * (len(keys) - 1)) / total_weight
         else:
             unit = reference_unit
-        row_width = gap * (len(r) - 1) + unit * total_weight
+        row_width = gap * (len(keys) - 1) + unit * total_weight
         x = pad_h + (available - row_width) / 2
         out = []
-        for code, label, weight in r:
+        for code, label, weight in keys:
             w = unit * weight
-            out.append((code, label, x, y, w, key_height))
+            out.append((code, label, x, y, w, row_height - gap))
             x += w + gap
         placed.append(out)
         y += row_height
-    return placed, key_height, gap
+    return placed, letter_row, gap, pad_h, available
 
 
 def blend(base, layer):
     return Image.alpha_composite(base, layer)
 
 
+def glass_key(size, x, y, w, h, radius, a_top, a_bot, rim_top, rim_bot, stroke):
+    layer = Image.new("RGBA", size, (0, 0, 0, 0))
+    # Fake soft shadow: three offset rounded rects with falling alpha.
+    for off, sa in ((3, 0x16), (2, 0x12), (1, 0x0E)):
+        sl = Image.new("RGBA", size, (0, 0, 0, 0))
+        ImageDraw.Draw(sl).rounded_rectangle(
+            [x + off * 0.4, y + off, x + w - off * 0.4, y + h + off],
+            radius=radius, fill=(0, 0, 0, sa))
+        layer = blend(layer, sl)
+    # Body: approximate the vertical gradient with horizontal bands.
+    steps = 24
+    for i in range(steps):
+        t = i / (steps - 1)
+        alpha = int(a_top + (a_bot - a_top) * t)
+        y0 = y + h * i / steps
+        y1 = y + h * (i + 1) / steps + 1
+        band = Image.new("RGBA", size, (0, 0, 0, 0))
+        ImageDraw.Draw(band).rounded_rectangle(
+            [x, y, x + w, y + h], radius=radius, fill=(255, 255, 255, alpha))
+        layer.paste(band.crop((0, int(y0), size[0], int(min(y1, y + h)))), (0, int(y0)))
+    layer = blend(layer, ramped_outline(size, x, y, w, h, radius, stroke,
+                                        (255, 255, 255), rim_top, rim_bot))
+    return layer
+
+
 def draw_keyboard(bg, page, night):
-    height = round(min(46 * DENSITY, SCREEN_H * 0.10) * ROWS + 14 * DENSITY)
-    rows_placed, key_h, gap = layout(PAGES[page], W, height)
+    heights = ROW_HEIGHTS[page]
+    strip_height = 40 * DENSITY
+    height = round(min(46 * DENSITY, SCREEN_H * 0.075) * sum(ROW_HEIGHTS["letters"])
+                   + strip_height)
+    rows_placed, letter_row, gap, pad_h, available = layout(
+        PAGES[page], heights, W, height, strip_height)
     radius = 10 * DENSITY
+    stroke = max(1, int(DENSITY * 0.75))
 
     top, bottom = (0x3D, 0x21) if night else (0x96, 0x63)
     rim_top, rim_bottom = (0x99, 0x26) if night else (0xB3, 0x2B)
-    dark_rim_bottom = 0
     text_rgb = (255, 255, 255) if night else (0x14, 0x16, 0x1C)
 
     board = Image.new("RGBA", (W, height), (0, 0, 0, 0))
 
-    try:
-        font_big = ImageFont.truetype("C:/Windows/Fonts/segoeui.ttf", int(key_h * 0.40))
-        font_small = ImageFont.truetype("C:/Windows/Fonts/segoeui.ttf", int(key_h * 0.29))
-    except OSError:
-        font_big = font_small = ImageFont.load_default()
+    def font(path, size):
+        try:
+            return ImageFont.truetype(path, int(size))
+        except OSError:
+            return ImageFont.load_default()
 
-    for r in rows_placed:
-        for code, label, x, y, w, h in r:
-            command = code < 0
+    for r, keys in enumerate(rows_placed):
+        row_height = letter_row * heights[r] - gap
+        font_big = font(TEXT_FONT, row_height * 0.40)
+        font_small = font(TEXT_FONT, row_height * 0.29)
+        for code, label, x, y, w, h in keys:
             a_top, a_bot = top, bottom
-            if command or code == ord(" "):
+            if code < 0 or code == ord(" "):
                 a_top, a_bot = int(top * 0.6), int(bottom * 0.6)
-
-            layer = Image.new("RGBA", (W, height), (0, 0, 0, 0))
-            d = ImageDraw.Draw(layer)
-            # Fake soft shadow: three offset rounded rects with falling alpha.
-            # Android cannot blur a shape cheaply under hardware acceleration, so
-            # the falloff is stacked by hand rather than by a BlurMaskFilter.
-            for off, sa in ((3, 0x16), (2, 0x12), (1, 0x0E)):
-                sl = Image.new("RGBA", (W, height), (0, 0, 0, 0))
-                ImageDraw.Draw(sl).rounded_rectangle(
-                    [x + off * 0.4, y + off, x + w - off * 0.4, y + h + off],
-                    radius=radius, fill=(0, 0, 0, sa))
-                layer = blend(layer, sl)
-            # Body: approximate the vertical gradient with horizontal bands.
-            steps = 24
-            for i in range(steps):
-                t = i / (steps - 1)
-                alpha = int(a_top + (a_bot - a_top) * t)
-                y0 = y + h * i / steps
-                y1 = y + h * (i + 1) / steps + 1
-                band = Image.new("RGBA", (W, height), (0, 0, 0, 0))
-                bd = ImageDraw.Draw(band)
-                bd.rounded_rectangle([x, y, x + w, y + h], radius=radius,
-                                     fill=(255, 255, 255, alpha))
-                crop = band.crop((0, int(y0), W, int(min(y1, y + h))))
-                layer.paste(crop, (0, int(y0)))
-            # Rim light: a hairline outline whose alpha ramps top to bottom, the
-            # same as the LinearGradient on the rim paint on the device.
-            stroke = max(1, int(DENSITY * 0.75))
-            layer = blend(layer, ramped_outline(
-                (W, height), x, y, w, h, radius, stroke,
-                (255, 255, 255), rim_top, rim_bottom))
-            if dark_rim_bottom:
-                layer = blend(layer, ramped_outline(
-                    (W, height), x, y, w, h, radius, stroke,
-                    (0, 0, 0), 0, dark_rim_bottom))
-            board = blend(board, layer)
-
-            if code in (SHIFT, BACKSPACE, ENTER):
+            board = blend(board, glass_key((W, height), x, y, w, h, radius,
+                                           a_top, a_bot, rim_top, rim_bottom, stroke))
+            if code in (SHIFT, BACKSPACE, ENTER, EMOJI):
                 draw_icon(ImageDraw.Draw(board), code, x, y, w, h,
-                          text_rgb + (255,), DENSITY, caps=False)
+                          text_rgb + (255,), DENSITY)
             elif label:
-                td = ImageDraw.Draw(board)
-                font = font_small if command and len(label) > 1 else font_big
-                td.text((x + w / 2, y + h / 2), label, font=font, anchor="mm",
-                        fill=text_rgb + (255,))
+                ImageDraw.Draw(board).text(
+                    (x + w / 2, y + h / 2), label,
+                    font=font_small if len(label) > 1 else font_big,
+                    anchor="mm", fill=text_rgb + (255,))
+
+    draw_strip(board, strip_height, pad_h, available, text_rgb)
 
     out = bg.copy()
     out.paste(board, (0, bg.height - height), board)
     return out
 
 
+def draw_strip(board, strip_height, pad_h, available, text_rgb):
+    """Three words, best in the centre, then two emoji on the right."""
+    d = ImageDraw.Draw(board)
+    word_font = ImageFont.truetype(TEXT_FONT, int(strip_height * 0.34))
+    words_width = available * 0.72
+    slot = words_width / 3
+    for i in range(3):
+        rank = 0 if i == 1 else (1 if i == 0 else 2)
+        if rank >= len(SUGGEST_WORDS):
+            continue
+        cx = pad_h + slot * (i + 0.5)
+        d.text((cx, strip_height / 2), SUGGEST_WORDS[rank], font=word_font,
+               anchor="mm", fill=text_rgb + (255,))
+
+    try:
+        emoji_font = ImageFont.truetype(EMOJI_FONT, int(strip_height * 0.46))
+        colour = True
+    except OSError:
+        emoji_font = word_font
+        colour = False
+    emoji_left = pad_h + words_width
+    emoji_slot = (available - words_width) / 2
+    for i, glyph in enumerate(SUGGEST_EMOJI[:2]):
+        cx = emoji_left + emoji_slot * (i + 0.5)
+        try:
+            d.text((cx, strip_height / 2), glyph, font=emoji_font, anchor="mm",
+                   embedded_color=colour, fill=text_rgb + (255,))
+        except (TypeError, OSError):
+            d.text((cx, strip_height / 2), glyph, font=word_font, anchor="mm",
+                   fill=text_rgb + (255,))
+
+
 def backdrop(kind):
     """A wallpaper-like image. Drawing translucent shapes straight onto an RGBA
     canvas REPLACES alpha instead of blending it, which silently rendered the
     mock content as solid white before -- every overlay goes through a layer."""
-    from PIL import ImageFilter
-    img = Image.new("RGBA", (W, 1400))
+    img = Image.new("RGBA", (W, 1500))
     d = ImageDraw.Draw(img)
     if kind == "dark":
         a, b = (14, 18, 34), (52, 26, 64)
@@ -219,16 +275,13 @@ def backdrop(kind):
         t = y / (img.height - 1)
         d.line([(0, y), (W, y)],
                fill=tuple(int(a[i] + (b[i] - a[i]) * t) for i in range(3)) + (255,))
-    # Soft colour blobs, blurred, so the glass has real variation behind it.
     for (cx, cy), r, rgb in blobs:
         layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
-        ImageDraw.Draw(layer).ellipse([cx - r, cy - r, cx + r, cy + r],
-                                      fill=rgb + (150,))
+        ImageDraw.Draw(layer).ellipse([cx - r, cy - r, cx + r, cy + r], fill=rgb + (150,))
         img = Image.alpha_composite(img, layer.filter(ImageFilter.GaussianBlur(120)))
-    # App-like content, blended properly and kept clear of the keyboard strip.
     layer = Image.new("RGBA", img.size, (0, 0, 0, 0))
     ld = ImageDraw.Draw(layer)
-    for i, ty in enumerate(range(110, 760, 105)):
+    for i, ty in enumerate(range(110, 700, 105)):
         w = W - 220 if i % 2 else W - 460
         ld.rounded_rectangle([90, ty, 90 + w, ty + 64], radius=32,
                              fill=(255, 255, 255, 48) if kind == "dark" else (24, 34, 54, 38))
@@ -238,6 +291,6 @@ def backdrop(kind):
 for kind, night in (("dark", True), ("light", False)):
     for page in ("letters", "symbols"):
         img = draw_keyboard(backdrop(kind), page, night)
-        name = f"preview-{kind}-{page}.png"
+        name = "preview-%s-%s.png" % (kind, page)
         img.convert("RGB").save(pathlib.Path(__file__).parent / name, quality=92)
         print("wrote", name)

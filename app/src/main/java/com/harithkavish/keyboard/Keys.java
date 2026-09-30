@@ -3,13 +3,17 @@ package com.harithkavish.keyboard;
 /**
  * The key layouts, as data.
  *
- * <p>Three pages — letters, symbols, and a second symbol page — each four rows
- * deep. A row's keys carry a width weight rather than a width: ten weight units
- * fill the keyboard, so a 1.5-weight shift key is one and a half letters wide on
- * any screen, and a row adding up to less than ten (the nine-letter home row) is
- * centred by the view.
+ * <p>Three pages — letters, symbols, and a second symbol page. A row's keys
+ * carry a width weight rather than a width: ten weight units fill the keyboard,
+ * so a 1.5-weight shift key is one and a half letters wide on any screen, and a
+ * row adding up to less than ten (the nine-letter home row) is centred by the
+ * view.
  *
- * <p>Shift, backspace and enter carry no label. The view draws those three as
+ * <p>Rows also carry a height weight, because the number row across the top of
+ * the letters page is deliberately shorter than a letter row. It is there to be
+ * reachable, not to compete with the letters for the thumb.
+ *
+ * <p>Shift, backspace, enter and emoji carry no label. The view draws those as
  * paths, because no font is guaranteed to have the arrow glyphs and a tofu box
  * on the backspace key is not worth the few lines it saves.
  */
@@ -22,10 +26,14 @@ final class Keys {
     static final int PAGE_SYMBOLS = -4;
     static final int PAGE_LETTERS = -5;
     static final int PAGE_MORE = -6;
+    static final int EMOJI = -7;
 
     static final int LETTERS = 0;
     static final int SYMBOLS = 1;
     static final int MORE = 2;
+
+    /** How tall the number row is next to a letter row. */
+    private static final float NUMBER_ROW_HEIGHT = 0.66f;
 
     static final class Key {
         final int code;
@@ -74,12 +82,26 @@ final class Keys {
                 };
             default:
                 return new Key[][]{
+                    row("1234567890"),
                     row("qwertyuiop"),
                     row("asdfghjkl"),
                     commandRow(SHIFT, "", "zxcvbnm"),
                     bottomRow(PAGE_SYMBOLS, "?123"),
                 };
         }
+    }
+
+    /**
+     * The height of each row of {@link #page}, relative to a letter row. Kept
+     * next to the layouts rather than in the view so the two cannot drift: a
+     * page whose rows and heights disagree in length would lay out wrong at
+     * runtime rather than fail to compile.
+     */
+    static float[] rowHeights(int page) {
+        if (page == LETTERS) {
+            return new float[]{NUMBER_ROW_HEIGHT, 1f, 1f, 1f, 1f};
+        }
+        return new float[]{1f, 1f, 1f, 1f};
     }
 
     /** One weight unit per character. */
@@ -104,8 +126,10 @@ final class Keys {
     private static Key[] bottomRow(int pageCode, String pageLabel) {
         return new Key[]{
             new Key(pageCode, pageLabel, 1.5f),
+            new Key(EMOJI, "", 1f),
             new Key(',', ",", 1f),
-            new Key(' ', "", 5f),
+            new Key('@', "@", 1f),
+            new Key(' ', "", 3f),
             new Key('.', ".", 1f),
             new Key(ENTER, "", 1.5f),
         };

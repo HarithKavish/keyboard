@@ -10,6 +10,22 @@
     <string name="setup_step_two_detail">Pick Glass Keyboard as the keyboard to type with.</string>
     <string name="setup_enable">Open input method settings</string>
     <string name="setup_switch">Choose Glass Keyboard</string>
+
+    <string name="setup_typing">Typing</string>
+    <string name="setup_typing_detail">What the keyboard picks up as you use it. Everything learnt stays on this phone.</string>
+    <string name="setup_learn_words">Learn words</string>
+    <string name="setup_learn_words_detail">Remember the words you type and which ones follow each other, so the three suggestions get better.</string>
+    <string name="setup_learn_emoji">Learn emoji</string>
+    <string name="setup_learn_emoji_detail">Remember which emoji you pick after which words, so the two emoji suggestions get better.</string>
+    <string name="setup_autocorrect">Autocorrect</string>
+    <string name="setup_autocorrect_detail">Fix a word as you finish it. Press backspace straight after to put back what you typed — the keyboard takes that as a no and remembers it.</string>
+    <string name="setup_reset">Forget what it has learnt</string>
+    <string name="setup_reset_detail">Clears learnt words, emoji and corrections. The switches above and the built-in word list are left alone.</string>
+    <string name="setup_reset_confirm_title">Forget everything learnt?</string>
+    <string name="setup_reset_confirm_message">Learnt words, word pairs, emoji habits and corrections will be deleted. This cannot be undone.</string>
+    <string name="setup_reset_confirm_yes">Forget</string>
+    <string name="setup_reset_done">Forgotten.</string>
+
     <string name="setup_try">Try it here</string>
     <string name="setup_try_hint">Tap to type</string>
 </resources>

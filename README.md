@@ -4,21 +4,53 @@ A QWERTY keyboard for Android with translucent keys and no background of its
 own. The app behind it shows straight through the gaps, and the keys read as
 panes of glass laid over it.
 
-It is deliberately small. There are four Java classes, no libraries, and no
-AndroidX — the release APK is around **36 KB**, which is roughly a thousandth of
-what a mainstream keyboard installs.
+It is deliberately small. No libraries, no AndroidX, no Kotlin — the release APK
+is around **56 KB**, roughly a thousandth of what a mainstream keyboard installs.
 
 ## What it does
 
-- A three-page QWERTY layout: letters, symbols, and a second symbol page.
+- A three-page QWERTY layout — letters, symbols, a second symbol page — with a
+  short number row above the letters.
 - Shift, with caps lock on a double tap.
 - Backspace, which repeats when held.
 - Enter, which runs the field's own action — search in a search box, newline in
   a message box — rather than always sending one or the other.
 - Light and dark treatments, chosen from the system theme.
 
-It does not do suggestions, autocorrect, swipe input, emoji, themes, or
-settings. Those are what make a keyboard large, and none of them are here.
+### Suggestions
+
+A strip above the keys offers three words and two emoji. The **best guess sits in
+the centre**, second on the left and third on the right, because the centre is
+where a thumb resting under the space bar already is.
+
+The words come from what is being typed (completions) or from the word before it
+(what usually follows). The typed word itself always stays reachable, so a word
+the keyboard has never seen can still be kept.
+
+### Autocorrect, and being told it is wrong
+
+A word is corrected as it is finished. **Press backspace straight afterwards and
+what you actually typed comes back** — and the keyboard records that correction
+as refused, so it will not make it again. Whatever you settle on instead is
+learnt as what you meant, so the same typing lands on the right word next time.
+
+That undo is the only moment a keyboard can be certain it was wrong, which is
+why it is treated as the signal rather than as an ordinary delete.
+
+### Emoji
+
+An emoji key opens a picker with a scrolling grid, category tabs and recents —
+transparent, like the rest of the keyboard. No search, GIFs or stickers; those
+are three separate products.
+
+### What it learns, and turning it off
+
+Words, emoji habits and corrections are learnt on the device and go nowhere else.
+The app has a switch for word learning and a separate one for emoji learning, a
+switch for autocorrect, and a button that forgets everything learnt. The built-in
+word list and the switches survive a reset; everything learnt does not.
+
+It still does not do swipe input or themes.
 
 ## Where it lives
 

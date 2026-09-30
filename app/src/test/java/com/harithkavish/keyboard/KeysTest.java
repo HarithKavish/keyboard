@@ -16,9 +16,29 @@ public class KeysTest {
     private static final float ROW_UNITS = 10f;
 
     @Test
-    public void everyPageHasFourRows() {
+    public void thePagesHaveTheRowsTheViewExpects() {
+        // The letters page carries a number row the symbol pages do not need.
+        assertEquals(5, Keys.page(Keys.LETTERS).length);
+        assertEquals(4, Keys.page(Keys.SYMBOLS).length);
+        assertEquals(4, Keys.page(Keys.MORE).length);
+    }
+
+    @Test
+    public void everyPageHasAHeightForEveryRow() {
+        // The view multiplies row i by height i. A short array would throw at
+        // layout time, on a device, in whatever app happened to be open.
         for (int page : new int[]{Keys.LETTERS, Keys.SYMBOLS, Keys.MORE}) {
-            assertEquals("page " + page, 4, Keys.page(page).length);
+            assertEquals("page " + page,
+                    Keys.page(page).length, Keys.rowHeights(page).length);
+        }
+    }
+
+    @Test
+    public void theNumberRowIsShorterThanALetterRow() {
+        float[] heights = Keys.rowHeights(Keys.LETTERS);
+        assertTrue(heights[0] < heights[1]);
+        for (int i = 1; i < heights.length; i++) {
+            assertEquals(1f, heights[i], 0.001f);
         }
     }
 
@@ -26,13 +46,15 @@ public class KeysTest {
     public void fullRowsTotalTenUnits() {
         for (int page : new int[]{Keys.LETTERS, Keys.SYMBOLS, Keys.MORE}) {
             Keys.Key[][] rows = Keys.page(page);
+            // The nine-letter home row is the one short row, and the number row
+            // the letters page gained pushes its index along by one.
+            int shortRow = page == Keys.LETTERS ? 2 : 1;
             for (int i = 0; i < rows.length; i++) {
                 float total = 0f;
                 for (Keys.Key key : rows[i]) {
                     total += key.weight;
                 }
-                // Row 1 is the short row on every page — nine letters, centred.
-                float expected = i == 1 ? 9f : ROW_UNITS;
+                float expected = i == shortRow ? 9f : ROW_UNITS;
                 assertEquals("page " + page + " row " + i, expected, total, 0.001f);
             }
         }
@@ -59,13 +81,41 @@ public class KeysTest {
     }
 
     @Test
-    public void lettersPageIsQwerty() {
+    public void lettersPageIsQwertyUnderANumberRow() {
         Keys.Key[][] rows = Keys.page(Keys.LETTERS);
-        StringBuilder top = new StringBuilder();
-        for (Keys.Key key : rows[0]) {
-            top.append(key.label);
+        assertEquals("1234567890", labels(rows[0]));
+        assertEquals("qwertyuiop", labels(rows[1]));
+        assertEquals("asdfghjkl", labels(rows[2]));
+    }
+
+    @Test
+    public void everyPageCanReachEmojiAndAt() {
+        for (int page : new int[]{Keys.LETTERS, Keys.SYMBOLS, Keys.MORE}) {
+            assertTrue("emoji on page " + page, hasCode(Keys.page(page), Keys.EMOJI));
+            assertTrue("at sign on page " + page, hasCode(Keys.page(page), '@'));
         }
-        assertEquals("qwertyuiop", top.toString());
+    }
+
+    @Test
+    public void commandCodesAreDistinct() {
+        // They are hand-numbered, and two sharing a value would silently make
+        // one key do the other's job.
+        int[] codes = {Keys.SHIFT, Keys.BACKSPACE, Keys.ENTER, Keys.PAGE_SYMBOLS,
+            Keys.PAGE_LETTERS, Keys.PAGE_MORE, Keys.EMOJI};
+        for (int i = 0; i < codes.length; i++) {
+            for (int j = i + 1; j < codes.length; j++) {
+                assertTrue("codes " + i + " and " + j + " collide", codes[i] != codes[j]);
+            }
+            assertTrue("command codes must be negative", codes[i] < 0);
+        }
+    }
+
+    private static String labels(Keys.Key[] row) {
+        StringBuilder out = new StringBuilder();
+        for (Keys.Key key : row) {
+            out.append(key.label);
+        }
+        return out.toString();
     }
 
     private static boolean hasCode(Keys.Key[][] rows, int code) {
