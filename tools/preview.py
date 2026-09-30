@@ -62,7 +62,7 @@ SUGGEST_EMOJI_BY_PAGE = {"letters": SUGGEST_EMOJI, "symbols": []}
 
 def draw_icon(d, code, x, y, w, h, colour, density, caps=False):
     """Ports drawIcon() from GlassKeyboardView."""
-    s = min(w, h) * 0.42
+    s = min(min(w, h) * 0.42, 9 * density)   # capped; see MAX_ICON_DP
     cx, cy = x + w / 2, y + h / 2
     lw = max(density, s * 0.14)
 
@@ -213,8 +213,9 @@ def draw_keyboard(bg, page, night):
 
     for r, keys in enumerate(rows_placed):
         row_height = letter_row * heights[r] - gap
-        font_big = font(TEXT_FONT, row_height * 0.40)
-        font_small = font(TEXT_FONT, row_height * 0.29)
+        # Capped at the picker's label size; see MAX_GLYPH_DP.
+        font_big = font(TEXT_FONT, min(row_height * 0.40, 14 * DENSITY))
+        font_small = font(TEXT_FONT, min(row_height * 0.29, 14 * DENSITY))
         for code, label, x, y, w, h in keys:
             a_top, a_bot = top, bottom
             if code < 0 or code == ord(" "):

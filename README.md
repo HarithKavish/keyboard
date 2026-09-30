@@ -136,6 +136,10 @@ while the emoji scroll underneath it. Every emoji, every button and the heading
 itself sit on the same glass as the keys, at the same opacity, with the wallpaper
 showing between them rather than behind a solid panel.
 
+Delete a word the space bar completed for you and it takes the hint: that
+expansion is not offered again, and the refusal is remembered across restarts.
+The same already applied to autocorrect.
+
 ### What it learns, and turning it off
 
 Words, emoji habits and corrections are learnt on the device and go nowhere else.

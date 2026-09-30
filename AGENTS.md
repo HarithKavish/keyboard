@@ -93,6 +93,31 @@ likely to be quietly wrong: it changes its own behaviour over time, so a bug in
 it reads as "it just feels worse now" rather than as a crash. Anything added to
 what it learns should be testable the same way.
 
+**A deleted completion is a refusal too, and shares the same blocked set.**
+The space bar expands a single letter into a word and inserts the expected next
+word on a second press. Deleting either used to be an ordinary backspace that
+taught nothing, so the same unwanted word came back every time. Both now arm the
+undo through `rememberCompletion()`, and `space()` checks `isRefused()` before
+offering again.
+
+Two details that are easy to get wrong:
+
+- The key a refusal is recorded against is not always what gets put back.
+  Completing "k" into "keyboard" keys on "k"; inserting a word after "the" keys
+  on "the", because nothing was replaced and the restore text is empty. Hence
+  `correctionKey` alongside `correctionTyped`.
+- `rejectCompletion()` deliberately does NOT bump the key's word count, which is
+  the one thing it must not share with `rejectCorrection()`. A completion's key
+  may be a single letter or the preceding word, and neither is evidence that it
+  is a word someone typed. There is a test pinning exactly that difference.
+
+**Glyphs and icons are capped, keys are not.** `MAX_GLYPH_DP` (14dp) and
+`MAX_ICON_DP` (9dp) match the emoji picker's bottom bar, which is where those
+sizes came from. The keys still scale with the row; what is drawn inside them
+stops. Before this, a letter was 16dp against the picker's 14dp label and the
+keyboard's backspace was half again as wide as the picker's, which read as two
+different apps sharing a window.
+
 **A rejected correction has to stay rejected.** Backspace straight after an
 autocorrection puts back what was typed and records a refusal; the word the
 person then settles on is learnt as what they actually meant. That undo is the
@@ -316,6 +341,12 @@ ACTION_MOVE stops retargeting entirely -- otherwise sliding past the end of the
 bar would quietly turn the gesture back into a key press on whatever is beyond
 it. The pending word is drawn on the bar while swiping, because a blank bar
 gives no clue which word is about to be committed.
+
+**The setup screen is pitch black and fixed dark, not DayNight.** The window
+background is pure black, so a light theme's dark text would be unreadable on it;
+the dark `DeviceDefault` parent supplies the light text and switch colours that
+go with it. The `values-v29` DayNight override was removed for that reason — put
+it back and half the screen becomes unreadable in light mode.
 
 **Publishing needs the signing secrets.** `publish-store.yml` refuses to run
 without them, on purpose: Android identifies an app by its signature, so a build

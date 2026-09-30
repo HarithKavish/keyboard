@@ -680,6 +680,31 @@ final class Predictor {
      * which is the only unambiguous signal a keyboard ever gets about its own
      * mistakes.
      */
+    /** True once this replacement has been refused and must not be offered again. */
+    boolean isRefused(String typed, String replacement) {
+        if (typed == null || replacement == null) {
+            return false;
+        }
+        return blocked.contains(typed.toLowerCase() + ">" + replacement.toLowerCase());
+    }
+
+    /**
+     * Records that a word the space bar completed was deleted straight away.
+     *
+     * <p>Shares the blocked set with {@link #rejectCorrection}, so one refusal
+     * stops both paths offering the same thing, and it persists with everything
+     * else. It does NOT treat the key as a word, which is the difference: the key
+     * here may be a single letter, or the word *before* rather than the word
+     * replaced, and neither is evidence of anything.
+     */
+    void rejectCompletion(String key, String word) {
+        if (key == null || word == null || key.isEmpty()) {
+            return;
+        }
+        blocked.add(key.toLowerCase() + ">" + word.toLowerCase());
+        touch();
+    }
+
     void rejectCorrection(String typed, String corrected) {
         if (typed == null || corrected == null) {
             return;

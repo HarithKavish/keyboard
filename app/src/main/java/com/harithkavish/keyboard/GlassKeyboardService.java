@@ -60,6 +60,14 @@ public final class GlassKeyboardService extends InputMethodService
     /** What it was replaced with. */
     private String correctionResult;
     /**
+     * What a refusal is recorded against, which is not always what gets put
+     * back. Completing "k" into "keyboard" keys on "k"; inserting an expected
+     * word after "the" keys on "the", because there was nothing to replace.
+     */
+    private String correctionKey;
+    /** True when the pending thing was a space completion rather than a fix. */
+    private boolean correctionWasCompletion;
+    /**
      * Set once a correction has been undone: the original typing, held until the
      * person finishes the word by hand so what they actually meant can be learnt.
      */
@@ -283,11 +291,14 @@ public final class GlassKeyboardService extends InputMethodService
 
         if (context.current.length() == 1 && !standsAlone(context.current)) {
             String top = topSuggestion(context);
-            if (top != null) {
+            // Refused once, never again: the person deleted this expansion the
+            // last time it happened.
+            if (top != null && !predictor.isRefused(context.current, top)) {
                 clearCorrectionState();
                 input.deleteSurroundingText(context.current.length(), 0);
                 input.commitText(top + " ", 1);
                 predictor.learnWord(context.previous, top);
+                rememberCompletion(context.current, top, context.current);
                 return;
             }
         }
@@ -295,10 +306,13 @@ public final class GlassKeyboardService extends InputMethodService
         if (context.current.isEmpty() && context.previous != null
                 && endsWithWordThenSpace(input)) {
             String top = topSuggestion(context);
-            if (top != null) {
+            if (top != null && !predictor.isRefused(context.previous, top)) {
                 clearCorrectionState();
                 input.commitText(top + " ", 1);
                 predictor.learnWord(context.previous, top);
+                // Nothing was replaced, so undoing restores nothing; the refusal
+                // is keyed on the word this one was offered after.
+                rememberCompletion("", top, context.previous);
                 return;
             }
         }
@@ -349,6 +363,8 @@ public final class GlassKeyboardService extends InputMethodService
             input.commitText(corrected, 1);
             correctionTyped = typed;
             correctionResult = corrected;
+            correctionKey = typed;
+            correctionWasCompletion = false;
         } else {
             clearPendingCorrection();
         }
@@ -415,6 +431,8 @@ public final class GlassKeyboardService extends InputMethodService
         if (correctionTyped != null && correctionResult != null) {
             String typed = correctionTyped;
             String corrected = correctionResult;
+            String key = correctionKey;
+            boolean wasCompletion = correctionWasCompletion;
             clearPendingCorrection();
 
             CharSequence before = input.getTextBeforeCursor(corrected.length() + 2, 0);
@@ -427,8 +445,14 @@ public final class GlassKeyboardService extends InputMethodService
                     && tail.regionMatches(true, start, corrected, 0, corrected.length())) {
                 input.deleteSurroundingText(corrected.length() + trailing, 0);
                 input.commitText(typed, 1);
-                predictor.rejectCorrection(typed, corrected);
-                awaitingReplacement = typed;
+                if (wasCompletion) {
+                    predictor.rejectCompletion(key, corrected);
+                } else {
+                    predictor.rejectCorrection(typed, corrected);
+                }
+                // Only worth watching for a replacement if something was put
+                // back; the second completion restores nothing.
+                awaitingReplacement = typed.isEmpty() ? null : typed;
                 return;
             }
         }
@@ -782,9 +806,22 @@ public final class GlassKeyboardService extends InputMethodService
         return Character.isLetter(code) || code == '\'';
     }
 
+    /**
+     * Arms the undo for a word the space bar inserted, so backspace puts back
+     * what was there and records that this completion was not wanted.
+     */
+    private void rememberCompletion(String restore, String inserted, String key) {
+        correctionTyped = restore;
+        correctionResult = inserted;
+        correctionKey = key;
+        correctionWasCompletion = true;
+    }
+
     private void clearPendingCorrection() {
         correctionTyped = null;
         correctionResult = null;
+        correctionKey = null;
+        correctionWasCompletion = false;
     }
 
     private void clearCorrectionState() {

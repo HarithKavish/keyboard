@@ -370,6 +370,79 @@ public class PredictorTest {
         assertNull("the past tense must survive", predictor.correct("were"));
     }
 
+
+    // ------------------------------------------------- refusing a completion
+
+    @Test
+    public void remembersARefusedCompletion() {
+        // The space bar expanded "k" into "keyboard" and the person deleted it.
+        // Offering the same expansion again is the complaint this fixes.
+        assertFalse(predictor.isRefused("k", "keyboard"));
+        predictor.rejectCompletion("k", "keyboard");
+        assertTrue(predictor.isRefused("k", "keyboard"));
+    }
+
+    @Test
+    public void aRefusalIsSpecificToThatPair() {
+        predictor.rejectCompletion("k", "keyboard");
+        assertFalse("another word from the same letter", predictor.isRefused("k", "keep"));
+        assertFalse("the same word from another letter", predictor.isRefused("ke", "keyboard"));
+    }
+
+    @Test
+    public void aRefusalIgnoresCase() {
+        predictor.rejectCompletion("K", "Keyboard");
+        assertTrue(predictor.isRefused("k", "keyboard"));
+    }
+
+    @Test
+    public void aRefusedCompletionAlsoStopsAutocorrect() {
+        // One blocked set behind both, so a refusal is not undone by the other
+        // path quietly making the same replacement.
+        predictor.addVocabulary(Arrays.asList("keyboard"));
+        predictor.rejectCompletion("keybaord", "keyboard");
+        assertNull(predictor.correct("keybaord"));
+    }
+
+    @Test
+    public void refusingACompletionDoesNotMakeTheKeyAWord() {
+        // rejectCorrection() treats the typed form as evidence of a real word,
+        // and should. A completion's key may be a single letter, or the word
+        // BEFORE rather than the word replaced, and neither is evidence of
+        // anything -- so this is the one thing the two must not share.
+        predictor.rejectCompletion("zqx", "zqxword");
+        predictor.rejectCorrection("zqy", "zqyword");
+        predictor.save();
+        String learnt = store.get("unigram", "");
+        assertFalse("a completion's key is not a word", learnt.contains("zqx"));
+        assertTrue("a rejected correction's typing is", learnt.contains("zqy"));
+    }
+
+    @Test
+    public void ignoresARefusalWithNothingToKeyOn() {
+        // The second completion replaces nothing, so if there is no previous
+        // word there is nothing to record against.
+        predictor.rejectCompletion("", "keyboard");
+        predictor.rejectCompletion(null, "keyboard");
+        assertFalse(predictor.isRefused("", "keyboard"));
+    }
+
+    @Test
+    public void aRefusedCompletionSurvivesSaving() {
+        predictor.rejectCompletion("k", "keyboard");
+        predictor.save();
+        Predictor reloaded = new Predictor(store);
+        assertTrue("a refusal that is forgotten on restart is not a refusal",
+                reloaded.isRefused("k", "keyboard"));
+    }
+
+    @Test
+    public void forgettingEverythingForgetsRefusals() {
+        predictor.rejectCompletion("k", "keyboard");
+        predictor.resetLearning();
+        assertFalse(predictor.isRefused("k", "keyboard"));
+    }
+
     // -------------------------------------------------------- always capital
 
     @Test

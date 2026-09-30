@@ -91,6 +91,18 @@ final class GlassKeyboardView extends View {
      * finger could slide onto the key beyond it.
      */
     private static final float SWIPE_MIN_DP = 40f;
+
+    /**
+     * The ceiling for a glyph on a key, and for an icon's half-size.
+     *
+     * <p>Both match the emoji picker's bottom bar, where the ABC label is 14dp
+     * and the backspace arrow is built on a 9dp half-size. Those read correctly,
+     * and a keyboard whose letters grew with the key while the picker's did not
+     * looked like two different apps. The key itself still scales; only what is
+     * drawn inside it stops.
+     */
+    private static final float MAX_GLYPH_DP = 14f;
+    private static final float MAX_ICON_DP = 9f;
     private static final float LETTER_ROW_DP = 46f;
     /** Cap in landscape, where a letter-row-sized keyboard would eat the screen. */
     private static final float MAX_ROW_SHARE_OF_SCREEN = 0.075f;
@@ -383,8 +395,8 @@ final class GlassKeyboardView extends View {
 
         for (int r = 0; r < rows.length; r++) {
             float rowHeight = letterRowHeight * rowWeights[r] - gap;
-            float letterSize = rowHeight * 0.40f;
-            float labelSize = rowHeight * 0.29f;
+            float letterSize = Math.min(rowHeight * 0.40f, MAX_GLYPH_DP * density);
+            float labelSize = Math.min(rowHeight * 0.29f, MAX_GLYPH_DP * density);
             for (Keys.Key key : rows[r]) {
                 boolean down = key == pressed;
                 Shader body;
@@ -475,7 +487,7 @@ final class GlassKeyboardView extends View {
      * proportions works at every key size.
      */
     private void drawIcon(Canvas canvas, Keys.Key key) {
-        float s = Math.min(key.w, key.h) * 0.42f;
+        float s = Math.min(Math.min(key.w, key.h) * 0.42f, MAX_ICON_DP * density);
         float cx = key.w / 2f;
         float cy = key.h / 2f;
 
