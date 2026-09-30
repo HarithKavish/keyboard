@@ -32,10 +32,13 @@ public final class GlassKeyboardService extends InputMethodService
      */
     private static final int CONTEXT_CHARS = 96;
 
-    /** Marks that end a sentence, after which the next letter is capitalised. */
+    /**
+     * Marks that end a sentence, after which the next letter is capitalised. A
+     * comma is deliberately not one of them.
+     */
     private static final String SENTENCE_ENDS = ".!?";
-    /** Marks that take a space after them when they follow a word. */
-    private static final String SPACED_MARKS = ".!?,;:";
+    /** Marks that hug the word before them and take a space after. */
+    private static final String PUNCTUATION = ".!?,;:";
 
     private FrameLayout root;
     private GlassKeyboardView keyboard;
@@ -170,63 +173,155 @@ public final class GlassKeyboardService extends InputMethodService
                 backspace(input);
                 break;
             case Keys.ENTER:
-                finishWord(input, null);
+                closeWord(input, readContext(input));
                 enter(input);
                 break;
             default:
                 if (isWordCharacter(code)) {
                     clearPendingCorrection();
                     input.commitText(String.valueOf((char) code), 1);
+                } else if (code == ' ') {
+                    space(input);
+                } else if (PUNCTUATION.indexOf(code) >= 0) {
+                    punctuate(input, (char) code);
                 } else {
-                    // A separator ends the word, which is when a correction can
-                    // be made and when there is something worth learning.
-                    finishWord(input, String.valueOf((char) code));
+                    closeWord(input, readContext(input));
+                    input.commitText(String.valueOf((char) code), 1);
                 }
         }
         refreshSuggestions();
     }
 
     /**
-     * Closes off the word before the cursor: corrects it if it should be
-     * corrected, learns it, then commits whatever ended it.
+     * The space bar, which does three different things.
      *
-     * <p>A mark that ends a sentence also takes a space after it, so the next
-     * sentence starts where it should without the person reaching for the space
-     * bar. {@link #refreshSuggestions} then turns shift back on.
+     * <p>After a single letter it completes the word: typing "h" then space
+     * gives the best word starting with h. Pressed a second time in a row it
+     * inserts the word it expects next. Otherwise it ends the word and types a
+     * space, which is the ordinary case and by far the commonest.
      */
-    private void finishWord(InputConnection input, String separator) {
+    private void space(InputConnection input) {
         TextContext context = readContext(input);
-        String previous = context.previous;
-        String typed = context.current;
 
-        if (!typed.isEmpty()) {
-            if (awaitingReplacement != null && !awaitingReplacement.equalsIgnoreCase(typed)) {
-                // The person undid a correction and has now typed what they
-                // actually meant. That pair is the most reliable signal there is.
-                predictor.learnCorrection(awaitingReplacement, typed);
-                awaitingReplacement = null;
+        if (context.current.length() == 1 && !standsAlone(context.current)) {
+            String top = topSuggestion(context);
+            if (top != null) {
+                clearCorrectionState();
+                input.deleteSurroundingText(context.current.length(), 0);
+                input.commitText(top + " ", 1);
+                predictor.learnWord(context.previous, top);
+                return;
             }
-            String corrected = predictor.correct(typed);
-            if (corrected != null) {
-                input.deleteSurroundingText(typed.length(), 0);
-                input.commitText(corrected, 1);
-                correctionTyped = typed;
-                correctionResult = corrected;
-            } else {
-                clearPendingCorrection();
+        }
+
+        if (context.current.isEmpty() && context.previous != null
+                && endsWithWordThenSpace(input)) {
+            String top = topSuggestion(context);
+            if (top != null) {
+                clearCorrectionState();
+                input.commitText(top + " ", 1);
+                predictor.learnWord(context.previous, top);
+                return;
             }
-            predictor.learnWord(previous, corrected != null ? corrected : typed);
-            previous = corrected != null ? corrected : typed;
         }
-        if (separator == null) {
-            return;
+
+        closeWord(input, context);
+        input.commitText(" ", 1);
+    }
+
+    /**
+     * A mark hugs the word before it and takes a space after it, so "hello ."
+     * becomes "hello. " however the person got there.
+     *
+     * <p>Only a full stop, question mark or exclamation mark begins a new
+     * sentence; a comma does not. Nothing here remembers that -- capitals come
+     * back because readContext() reads the text and sees the sentence restart.
+     */
+    private void punctuate(InputConnection input, char mark) {
+        TextContext context = readContext(input);
+        String previous = closeWord(input, context);
+        if (context.current.isEmpty()) {
+            // No word was just finished, so there may be a space sitting exactly
+            // where the mark belongs.
+            removeTrailingSpace(input);
         }
-        boolean spaced = separator.length() == 1
-                && SPACED_MARKS.indexOf(separator.charAt(0)) >= 0
-                && !typed.isEmpty();
-        input.commitText(spaced ? separator + " " : separator, 1);
-        if (spaced) {
-            predictor.learnPunctuation(previous, separator);
+        input.commitText(mark + " ", 1);
+        predictor.learnPunctuation(previous, String.valueOf(mark));
+    }
+
+    /**
+     * Corrects and learns the word before the cursor, if there is one.
+     *
+     * @return the word as it ended up, or the previous word when there was none
+     */
+    private String closeWord(InputConnection input, TextContext context) {
+        String typed = context.current;
+        if (typed.isEmpty()) {
+            return context.previous;
+        }
+        if (awaitingReplacement != null && !awaitingReplacement.equalsIgnoreCase(typed)) {
+            // The person undid a correction and has now typed what they actually
+            // meant. That pair is the most reliable signal there is.
+            predictor.learnCorrection(awaitingReplacement, typed);
+            awaitingReplacement = null;
+        }
+        String corrected = predictor.correct(typed);
+        if (corrected != null) {
+            input.deleteSurroundingText(typed.length(), 0);
+            input.commitText(corrected, 1);
+            correctionTyped = typed;
+            correctionResult = corrected;
+        } else {
+            clearPendingCorrection();
+        }
+        String settled = corrected != null ? corrected : typed;
+        predictor.learnWord(context.previous, settled);
+        return settled;
+    }
+
+    /** Whatever the strip is showing in its centre slot, capitalised to match. */
+    private String topSuggestion(TextContext context) {
+        List<String> words = predictor.predictWords(context.previous, context.current);
+        if (words.isEmpty()) {
+            return null;
+        }
+        String top = words.get(0);
+        if (!Predictor.isWordLike(top) || top.equalsIgnoreCase(context.current)) {
+            return null;
+        }
+        Casing.Mode mode = Casing.stronger(
+                keyboard == null ? Casing.Mode.NONE : keyboard.caseMode(),
+                Casing.of(context.current));
+        return Casing.apply(top, mode);
+    }
+
+    /**
+     * Single letters that are already words, which the space bar must not
+     * "complete" into something else. Typing "a" and a space has to give "a",
+     * not "and".
+     */
+    private static boolean standsAlone(String letter) {
+        return letter.equalsIgnoreCase("a") || letter.equalsIgnoreCase("i");
+    }
+
+    /**
+     * True when the cursor sits just past a letter and a space, which is what a
+     * second press of the space bar looks like.
+     *
+     * <p>Checking the character before the space is what stops the space this
+     * keyboard adds after a full stop from being mistaken for one the person
+     * typed -- otherwise every sentence would end by inserting a random word.
+     */
+    private static boolean endsWithWordThenSpace(InputConnection input) {
+        CharSequence before = input.getTextBeforeCursor(2, 0);
+        return before != null && before.length() == 2
+                && before.charAt(1) == ' ' && isWordCharacter(before.charAt(0));
+    }
+
+    private static void removeTrailingSpace(InputConnection input) {
+        CharSequence before = input.getTextBeforeCursor(1, 0);
+        if (before != null && before.length() == 1 && before.charAt(0) == ' ') {
+            input.deleteSurroundingText(1, 0);
         }
     }
 
@@ -366,6 +461,11 @@ public final class GlassKeyboardService extends InputMethodService
     @Override
     public void onBackToKeyboard() {
         showKeyboard();
+        if (keyboard != null) {
+            // The picker is reached from the symbol page, so without this the
+            // key marked ABC would hand back the symbols.
+            keyboard.showLetters();
+        }
     }
 
     // ----------------------------------------------------------------- plumbing
@@ -403,7 +503,7 @@ public final class GlassKeyboardService extends InputMethodService
         InputConnection input = getCurrentInputConnection();
         if (input == null) {
             keyboard.setSuggestions(Collections.<String>emptyList(),
-                    Collections.<String>emptyList());
+                    Collections.<String>emptyList(), Casing.Mode.NONE);
             return;
         }
         TextContext context = readContext(input);
@@ -427,8 +527,11 @@ public final class GlassKeyboardService extends InputMethodService
                 }
             }
         }
+        // The letters already typed decide the capitals as much as the shift key
+        // does: after "H", the suggestion is "Hi" and not "hi".
         keyboard.setSuggestions(words,
-                predictor.predictEmoji(context.previous, context.current));
+                predictor.predictEmoji(context.previous, context.current),
+                Casing.of(context.current));
     }
 
     /** What the text before the cursor says about where we are. */

@@ -80,6 +80,16 @@ final class Predictor {
         "welcome", "excellent", "lovely",
     };
 
+    /**
+     * Words that are capitalised however they are typed. A lone "i" is the one
+     * that matters; its contractions come along because they fail the same way.
+     * Pairs: what was typed, what it becomes.
+     */
+    private static final String[] ALWAYS_CAPITAL = {
+        "i", "I", "i'm", "I'm", "i've", "I've", "i'll", "I'll",
+        "i'd", "I'd", "i'am", "I am",
+    };
+
     private static Predictor instance;
 
     /**
@@ -122,6 +132,7 @@ final class Predictor {
 
     private final Set<String> questionStarts = new HashSet<>();
     private final Set<String> exclamationWords = new HashSet<>();
+    private final Map<String, String> alwaysCapital = new HashMap<>();
 
     private boolean learnWords;
     private boolean learnEmoji;
@@ -189,6 +200,9 @@ final class Predictor {
         }
         Collections.addAll(questionStarts, QUESTION_STARTS);
         Collections.addAll(exclamationWords, EXCLAMATION_WORDS);
+        for (int i = 0; i + 1 < ALWAYS_CAPITAL.length; i += 2) {
+            alwaysCapital.put(ALWAYS_CAPITAL[i], ALWAYS_CAPITAL[i + 1]);
+        }
 
         learnWords = store.getFlag(KEY_LEARN_WORDS, true);
         learnEmoji = store.getFlag(KEY_LEARN_EMOJI, true);
@@ -475,11 +489,24 @@ final class Predictor {
      * a keyboard earns a reputation for mangling names.
      */
     String correct(String typed) {
-        if (!autoCorrect || typed == null || typed.length() < 2) {
+        if (!autoCorrect || typed == null || typed.isEmpty()) {
             return null;
         }
         String lower = typed.toLowerCase();
         if (!isWordLike(lower)) {
+            return null;
+        }
+        // Checked before the length guard below, because the word this exists
+        // for is one letter long.
+        String capital = alwaysCapital.get(lower);
+        if (capital != null) {
+            return capital.equals(typed)
+                    || blocked.contains(lower + ">" + capital.toLowerCase())
+                    ? null : capital;
+        }
+        if (typed.length() < 2) {
+            // Anything else this short is far too easy to "fix" into a word the
+            // person never meant.
             return null;
         }
         String settled = forced.get(lower);

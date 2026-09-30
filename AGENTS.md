@@ -136,6 +136,30 @@ Automatic capitalisation sets shift at the start of a sentence but never
 overrides a person who has touched the key themselves, which is what
 `manualShift` guards.
 
+**Capitalisation goes through `Casing`, all of it.** Three things need the same
+answer and must not disagree: what the strip draws, what a tapped suggestion
+commits, and what the space bar inserts when it completes a word. Two sources
+feed it — the shift key, and the letters already typed, because "H" asks for
+"Hi" even though shift was consumed by the H — and `stronger()` takes whichever
+asks for more. A null mode means NONE; an early version let null fall through to
+TITLE and quietly capitalised everything, which a test caught.
+
+**The space bar has three jobs and two guards.** It completes a single letter,
+inserts the expected word when pressed twice, or types a space. The guards are
+what keep it usable:
+
+- `standsAlone()` exempts "a" and "i", which are words. Without it, typing "a "
+  gives "and" and there is no way to type "a" at all.
+- `endsWithWordThenSpace()` checks the character *before* the space, so the space
+  this keyboard adds after a full stop is not mistaken for one the person typed.
+  Without that check, every sentence would end by inserting a random word.
+
+**Punctuation spacing is decided from the text, not remembered.** `punctuate()`
+removes a space sitting where the mark belongs and adds one after. Whether
+capitals come back is not tracked anywhere: `readContext()` re-reads the field
+and sees the sentence restart, which is why a comma behaves differently from a
+full stop without a single flag saying so.
+
 **Publishing needs the signing secrets.** `publish-store.yml` refuses to run
 without them, on purpose: Android identifies an app by its signature, so a build
 signed with a different key is a different app and cannot update an installed

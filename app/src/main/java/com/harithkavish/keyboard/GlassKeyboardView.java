@@ -107,6 +107,8 @@ final class GlassKeyboardView extends View {
     private final RectF[] emojiSlots = new RectF[EMOJI_SLOTS];
     /** Index into the strip, words first then emoji, or -1. */
     private int pressedSlot = -1;
+    /** What the word already typed asks for, independent of the shift key. */
+    private Casing.Mode caseHint = Casing.Mode.NONE;
 
     private Keys.Key pressed;
     /** The key lifted off, handed to {@link #performClick()} to act on. */
@@ -195,7 +197,9 @@ final class GlassKeyboardView extends View {
      * the left one second and the right one third, which is the order a thumb
      * resting under the space bar reaches them in.
      */
-    void setSuggestions(List<String> newWords, List<String> newEmoji) {
+    void setSuggestions(List<String> newWords, List<String> newEmoji,
+                        Casing.Mode hint) {
+        caseHint = hint == null ? Casing.Mode.NONE : hint;
         words.clear();
         emoji.clear();
         if (newWords != null) {
@@ -512,20 +516,30 @@ final class GlassKeyboardView extends View {
     }
 
     /**
-     * A suggestion, capitalised to match the shift state, so what is on the strip
-     * is what lands in the field. Punctuation is left alone.
+     * A suggestion, capitalised to match both the shift key and the letters
+     * already typed, so what is on the strip is what lands in the field.
      */
     private String shape(String word) {
-        if (word.isEmpty() || !Character.isLetter(word.charAt(0))) {
-            return word;
-        }
+        return Casing.apply(word, Casing.stronger(caseMode(), caseHint));
+    }
+
+    /** What the shift key alone is asking for. */
+    Casing.Mode caseMode() {
         if (capsLock) {
-            return word.toUpperCase(Locale.getDefault());
+            return Casing.Mode.UPPER;
         }
-        if (shift) {
-            return Character.toUpperCase(word.charAt(0)) + word.substring(1);
+        return shift ? Casing.Mode.TITLE : Casing.Mode.NONE;
+    }
+
+    /**
+     * Back to the letters, wherever we were. The emoji picker hands the screen
+     * back through here: it is reached from the symbol page, and returning to
+     * the symbols rather than the alphabet is not what "ABC" means.
+     */
+    void showLetters() {
+        if (page != Keys.LETTERS) {
+            setPage(Keys.LETTERS);
         }
-        return word;
     }
 
     private static boolean hasIcon(Keys.Key key) {

@@ -211,6 +211,42 @@ public class PredictorTest {
     }
 
 
+
+    // -------------------------------------------------------- always capital
+
+    @Test
+    public void capitalisesALoneI() {
+        assertEquals("I", predictor.correct("i"));
+    }
+
+    @Test
+    public void capitalisesTheContractionsOfI() {
+        assertEquals("I'm", predictor.correct("i'm"));
+        assertEquals("I've", predictor.correct("i've"));
+        assertEquals("I'll", predictor.correct("i'll"));
+    }
+
+    @Test
+    public void leavesAnAlreadyCapitalIAlone() {
+        assertNull(predictor.correct("I"));
+        assertNull(predictor.correct("I'm"));
+    }
+
+    @Test
+    public void stillLeavesOtherSingleLettersAlone() {
+        // One letter is far too little to correct on, "i" aside.
+        assertNull(predictor.correct("a"));
+        assertNull(predictor.correct("x"));
+        assertNull(predictor.correct("z"));
+    }
+
+    @Test
+    public void aRejectedCapitalIStaysRejected() {
+        predictor.rejectCorrection("i", "I");
+        assertNull("undoing it must hold, like any other correction",
+                predictor.correct("i"));
+    }
+
     // ------------------------------------------------- finding emoji by keyword
 
     @Test

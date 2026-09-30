@@ -18,6 +18,23 @@ is around **73 KB**, roughly a thousandth of what a mainstream keyboard installs
   A full stop takes its own space and starts the next sentence capitalised.
 - Backspace, which repeats when held, and which deletes a whole emoji — flags,
   skin tones and all — rather than half of one.
+- A lone "i" becomes "I", as do "i'm", "i've" and "i'll".
+
+### What the space bar does
+
+Three things, depending on where the cursor is:
+
+- **After a single letter**, it completes the word: "h" then space gives the best
+  word starting with h. Except after "a" and "i", which are words already —
+  completing those would leave no way to type them.
+- **Pressed twice in a row**, it types the word the keyboard expects next.
+- **Otherwise**, it ends the word and types a space.
+
+### Punctuation
+
+A mark hugs the word before it and takes a space after, so "hello ." becomes
+"hello. " however you got there. A full stop, question mark or exclamation mark
+starts a new sentence and brings capitals back; a comma does not.
 - Enter, which runs the field's own action — search in a search box, newline in
   a message box — rather than always sending one or the other.
 - Light and dark treatments, chosen from the system theme.
@@ -33,8 +50,9 @@ The words come from what is being typed (completions) or from the word before it
 the keyboard has never seen can still be kept. With no emoji to offer, the words
 spread across the whole strip instead of leaving a third of it empty.
 
-Suggestions follow the shift key: capitalised under shift, in capitals under caps
-lock. Tap a capitalised word to keep it and the keyboard remembers the name that
+Suggestions follow both the shift key and the letters already typed: capitalised
+under shift, in capitals under caps lock, and capitalised after a typed capital —
+type "H" and the suggestion is "Hi", not "hi". Tap a capitalised word to keep it and the keyboard remembers the name that
 way — type "Harith" once mid-sentence and it is offered as "Harith" from then on.
 
 Once a sentence is long enough to be worth ending, the third slot offers the
