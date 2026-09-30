@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Three things have to line up for the keyboard to sit on a fully
+         transparent backdrop: a transparent window background, a translucent
+         window, and a null background cache hint. Leave any one of them out and
+         the platform paints an opaque panel behind the keys. -->
+    <style name="Theme.GlassKeyboard" parent="@android:style/Theme.InputMethod">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:colorBackgroundCacheHint">@null</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <!-- Without this the platform lays a dim scrim over everything behind
+             the window, which reads as a dark wash rather than transparency. -->
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowAnimationStyle">@android:style/Animation.InputMethod</item>
+    </style>
+
+    <!-- The setup screen is pitch black, not the device theme.
+
+         Deliberately the dark DeviceDefault rather than DayNight: the window is
+         pure black, and a light theme's dark text on it would be unreadable. The
+         parent supplies the light text and switch colours that go with it. This
+         is why there is no longer a values-v29 override - a DayNight variant
+         would put the screen back to being half unreadable. -->
+    <style name="Theme.Setup" parent="@android:style/Theme.DeviceDefault">
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:colorBackground">@android:color/black</item>
+        <item name="android:statusBarColor">@android:color/black</item>
+        <item name="android:navigationBarColor">@android:color/black</item>
+    </style>
+</resources>
