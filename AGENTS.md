@@ -189,6 +189,13 @@ The panes are deliberately solid enough to pass the colour behind them but not
 its detail. That is as close to frosting as this gets without a blur, and Android
 will not blur per-key.
 
+**The two emoji callbacks are named apart on purpose.**
+`GlassKeyboardView.Listener.onEmojiSuggestion()` replaces the word being typed;
+`EmojiPanelView.Listener.onEmojiPicked()` inserts at the cursor. They used to
+share one name, which meant the service could not tell them apart and both
+behaved the same. Do not merge them again: they are different gestures with
+different answers.
+
 **Publishing needs the signing secrets.** `publish-store.yml` refuses to run
 without them, on purpose: Android identifies an app by its signature, so a build
 signed with a different key is a different app and cannot update an installed

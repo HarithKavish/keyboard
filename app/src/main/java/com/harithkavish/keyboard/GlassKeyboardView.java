@@ -52,8 +52,12 @@ final class GlassKeyboardView extends View {
         /** A word or a punctuation mark from the suggestion strip was tapped. */
         void onSuggestion(String word);
 
-        /** An emoji from the suggestion strip was tapped. */
-        void onEmojiPicked(String emoji);
+        /**
+         * An emoji from the suggestion strip was tapped. Named apart from the
+         * picker's callback because it means something different: this one
+         * replaces the word being typed, that one inserts at the cursor.
+         */
+        void onEmojiSuggestion(String emoji);
     }
 
     private static final float ROW_UNITS = 10f;
@@ -796,7 +800,7 @@ final class GlassKeyboardView extends View {
         if (suggestion != null) {
             if (listener != null) {
                 if (pendingSuggestionIsEmoji) {
-                    listener.onEmojiPicked(suggestion);
+                    listener.onEmojiSuggestion(suggestion);
                 } else {
                     listener.onSuggestion(suggestion);
                 }

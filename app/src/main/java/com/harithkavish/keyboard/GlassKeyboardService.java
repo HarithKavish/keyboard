@@ -436,6 +436,39 @@ public final class GlassKeyboardService extends InputMethodService
         predictor.learnPunctuation(context.previous, mark);
     }
 
+    /**
+     * An emoji tapped in the suggestion strip stands in for the word being
+     * typed, so it replaces it. The strip offered that emoji *because* of those
+     * letters -- leaving them behind gives "fire \ud83d\udd25", which is not what
+     * tapping it asks for.
+     */
+    @Override
+    public void onEmojiSuggestion(String emoji) {
+        InputConnection input = getCurrentInputConnection();
+        if (input == null) {
+            return;
+        }
+        TextContext context = readContext(input);
+        clearCorrectionState();
+        if (!context.current.isEmpty()) {
+            input.deleteSurroundingText(context.current.length(), 0);
+            // A space after, like a word taken from the strip, so the next word
+            // does not run into the emoji.
+            input.commitText(emoji + " ", 1);
+        } else {
+            input.commitText(emoji, 1);
+        }
+        // The word it stood in for is exactly the association worth keeping.
+        String anchor = !context.current.isEmpty() ? context.current : context.previous;
+        predictor.learnEmojiFor(anchor, emoji);
+        refreshSuggestions();
+    }
+
+    /**
+     * An emoji chosen in the picker is inserted where the cursor is. Nothing is
+     * replaced: reaching the picker takes two deliberate taps away from the
+     * letters, and eating a half-typed word on the way back would be a surprise.
+     */
     @Override
     public void onEmojiPicked(String emoji) {
         InputConnection input = getCurrentInputConnection();
@@ -443,8 +476,6 @@ public final class GlassKeyboardService extends InputMethodService
             return;
         }
         TextContext context = readContext(input);
-        // The word it follows is what the association is worth learning against:
-        // the word being typed if there is one, otherwise the one before.
         String anchor = !context.current.isEmpty() ? context.current : context.previous;
         clearCorrectionState();
         input.commitText(emoji, 1);

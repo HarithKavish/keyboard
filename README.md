@@ -79,6 +79,12 @@ tall as the keyboard rather than the screen. ABC sits at its bottom left, under
 the same thumb, so the third tap returns to the letters. No search, GIFs or
 stickers; those are three separate products.
 
+Tapping an emoji in the strip **replaces the word being typed** — the strip
+offered it because of those letters, so "fire" becomes the flame rather than
+sitting next to it. An emoji chosen in the picker is inserted where the cursor
+is and replaces nothing, because getting there takes two deliberate taps away
+from the letters.
+
 The two emoji in the strip are found by keyword rather than by whole word, the
 way CLDR annotates them: "smile", "smiley" and "grin" all reach the same face,
 and "tick", "tickmark" and "check" all reach the same tick. Half a word is
