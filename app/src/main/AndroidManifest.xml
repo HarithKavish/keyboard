@@ -8,14 +8,15 @@
         android:supportsRtl="false"
         android:theme="@style/Theme.Setup">
 
-        <!-- The theme is what makes the keyboard window itself transparent. It
-             has to be declared here on the service: setting a background on the
-             input view alone still leaves the window's own opaque backdrop. -->
+        <!-- No android:theme here, deliberately. It is accepted by the manifest
+             parser and then ignored: InputMethodService.onCreate() calls
+             super.setTheme() with its own field and overwrites it. The theme is
+             applied in GlassKeyboardService's constructor instead, which is the
+             only place that works. -->
         <service
             android:name=".GlassKeyboardService"
             android:exported="true"
-            android:permission="android.permission.BIND_INPUT_METHOD"
-            android:theme="@style/Theme.GlassKeyboard">
+            android:permission="android.permission.BIND_INPUT_METHOD">
             <intent-filter>
                 <action android:name="android.view.InputMethod" />
             </intent-filter>

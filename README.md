@@ -33,12 +33,39 @@ is behind another window before API 31, and where it can, the blur covers the
 whole window rectangle — which would replace the transparent background with an
 opaque frosted panel and defeat the point.
 
-Three things have to line up for the transparency to work, and leaving out any
-one of them makes the platform paint an opaque panel behind the keys:
+Getting the window transparent takes more than writing a transparent theme.
+**`android:theme` on a `<service>` element does nothing for an input method.**
+The manifest parser accepts it, and then `InputMethodService.onCreate()` calls
+`super.setTheme()` with its own field and overwrites it; `setTheme()` throws once
+the window exists. The only place a theme can win is the service's constructor,
+which is where `GlassKeyboardService` sets it. Miss that and the window falls
+back to the opaque platform IME theme — an opaque surface with only keys drawn on
+it, which looks like a black slab.
 
-- `android:windowBackground` set to transparent on the service's theme
+The theme itself then needs all of:
+
+- `android:windowBackground` set to transparent
 - `android:windowIsTranslucent` set to true
 - `android:colorBackgroundCacheHint` set to `@null`
+- `android:backgroundDimEnabled` set to false, or a dim scrim washes everything
+  behind the window
+
+And the platform's own decor around the input view carries backgrounds of its
+own, so `clearInheritedBackgrounds()` walks from the keyboard up to the decor
+view and clears them. A transparent window does not help if something between
+the keys and the app is still painting.
+
+### What you see through it
+
+The keyboard is transparent, but what is *behind* it is the app's business. An
+app that resizes itself to sit above the keyboard draws nothing underneath, and
+a transparent keyboard over nothing is black. An app that stays full-screen and
+only insets its content — which is what edge-to-edge apps do — is visible
+through the keys.
+
+The keyboard could force the second case by not reserving any space in
+`onComputeInsets`, at the cost of covering the field being typed into. It does
+not: the app decides.
 
 Shift, backspace and enter are drawn as paths rather than typed as characters.
 No font is guaranteed to carry the arrow glyphs, and a tofu box on the backspace

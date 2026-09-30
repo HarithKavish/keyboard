@@ -37,12 +37,25 @@ every CI build so a regression shows up in the log rather than at publish time.
 If a dependency is genuinely needed, say what it buys and what it costs in the
 pull request.
 
-**The transparency is fragile.** It needs all three of `windowBackground`,
-`windowIsTranslucent` and `colorBackgroundCacheHint` on the service's theme in
-`res/values/styles.xml`, plus `onEvaluateFullscreenMode()` returning false. Drop
-any one and the platform paints an opaque panel behind the keys, or replaces the
-app with an opaque extracted-text editor in landscape. There is no test for this;
-it has to be looked at on a device.
+**The transparency is fragile, and it already broke once.** The first build
+shipped with `android:theme` on the `<service>` element, which the manifest
+parser accepts and the framework ignores —
+`InputMethodService.onCreate()` calls `super.setTheme()` with its own field and
+overwrites whatever the manifest said, and `setTheme()` throws once the window
+exists. The theme was never applied, the window used the opaque platform IME
+theme, and the keyboard rendered as a black slab. **The theme is set in
+`GlassKeyboardService`'s constructor. Do not move it, and do not "restore" the
+manifest attribute.**
+
+Beyond that it needs `windowBackground` transparent, `windowIsTranslucent` true,
+`colorBackgroundCacheHint` null and `backgroundDimEnabled` false in the theme,
+`clearInheritedBackgrounds()` clearing the platform decor the input view is
+wrapped in, and `onEvaluateFullscreenMode()` returning false so landscape does
+not swap the app for an opaque extracted-text editor.
+
+None of this is unit-testable — the failure is a window attribute, not a value a
+test can read — so it has to be looked at on a device. Lint, the unit tests and a
+green build all passed on the version that rendered a black slab.
 
 **`onDraw` allocates nothing.** The gradients are built once per key height in
 `buildShaders()` and each key is drawn translated to the origin so one shader

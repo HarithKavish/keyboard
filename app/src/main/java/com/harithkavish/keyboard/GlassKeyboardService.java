@@ -1,8 +1,10 @@
 package com.harithkavish.keyboard;
 
+import android.graphics.Color;
 import android.inputmethodservice.InputMethodService;
 import android.text.InputType;
 import android.view.View;
+import android.view.ViewParent;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
 
@@ -15,6 +17,21 @@ public final class GlassKeyboardService extends InputMethodService
 
     private GlassKeyboardView keyboard;
 
+    /**
+     * The theme has to be set here, in the constructor, and nowhere else.
+     *
+     * <p>{@code android:theme} on a {@code <service>} does nothing for an input
+     * method: {@link InputMethodService#onCreate()} calls
+     * {@code super.setTheme(mTheme)} itself, overwriting whatever the manifest
+     * asked for, and {@link #setTheme(int)} throws once the window exists. So
+     * this is the only point at which a transparent theme can win — miss it and
+     * the window falls back to the opaque platform IME theme, which paints a
+     * black slab behind the keys.
+     */
+    public GlassKeyboardService() {
+        setTheme(R.style.Theme_GlassKeyboard);
+    }
+
     @Override
     public View onCreateInputView() {
         keyboard = new GlassKeyboardView(this);
@@ -25,8 +42,28 @@ public final class GlassKeyboardService extends InputMethodService
     @Override
     public void onStartInputView(EditorInfo info, boolean restarting) {
         super.onStartInputView(info, restarting);
+        clearInheritedBackgrounds();
         if (keyboard != null) {
             keyboard.reset();
+        }
+    }
+
+    /**
+     * The platform wraps the input view in its own decor — an input-area frame
+     * inside the window's decor view — and those carry backgrounds from the
+     * platform IME layout rather than from this app's theme. A transparent
+     * window does not help if something between the keys and the app is still
+     * painting, so the chain is cleared explicitly.
+     */
+    private void clearInheritedBackgrounds() {
+        if (keyboard == null) {
+            return;
+        }
+        View view = keyboard;
+        while (view != null) {
+            view.setBackgroundColor(Color.TRANSPARENT);
+            ViewParent parent = view.getParent();
+            view = parent instanceof View ? (View) parent : null;
         }
     }
 
