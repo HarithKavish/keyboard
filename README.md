@@ -86,7 +86,14 @@ enough — "smi" already finds it.
 
 ### How solid the keys are
 
-A slider in the app sets it, with the middle leaving the design as drawn.
+The keys are solid enough to carry the colour behind them without carrying its
+detail — a red wallpaper gives red keys, but text behind them does not show
+through. Over a dark backdrop they tint dark with light glyphs; over a light one
+they tint light with dark glyphs. That pairing is forced: at the opacity needed
+to hide what is behind, a pale pane would swallow pale glyphs.
+
+A slider in the app moves it either way, with the middle leaving the design as
+drawn.
 
 The keyboard **cannot see the app behind it** — Android gives an input method no
 way to read the pixels of the window below, and the ways around that need

@@ -178,6 +178,17 @@ on purpose: lint reads each method alone and cannot see a guard one frame up.
 tests. That is what makes the luminance rule testable, and it is worth keeping
 that way.
 
+**Which way a pane tints depends on the backdrop, and it has to.** Over a dark
+backdrop the keys tint dark with light glyphs; over a light one they tint light
+with dark glyphs. This is not a style choice: at the opacity needed to hide the
+text behind the keys, a pale pane leaves pale glyphs sitting on near-white and
+unreadable. Raising opacity and keeping one pane colour does not work — the two
+decisions are bound together.
+
+The panes are deliberately solid enough to pass the colour behind them but not
+its detail. That is as close to frosting as this gets without a blur, and Android
+will not blur per-key.
+
 **Publishing needs the signing secrets.** `publish-store.yml` refuses to run
 without them, on purpose: Android identifies an app by its signature, so a build
 signed with a different key is a different app and cannot update an installed

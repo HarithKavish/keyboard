@@ -30,7 +30,11 @@ import java.util.Locale;
  *
  * <p>The glass look is a few cheap draws rather than a real blur: a stacked
  * shadow for lift, a shallow vertical gradient for the pane, and a rim light
- * that is brightest along the top edge. There is deliberately no gloss band
+ * that is brightest along the top edge. The panes are solid enough to pass the
+ * colour behind them without passing its detail, which is the closest thing to
+ * frosting available without a blur -- and which side they tint towards depends
+ * on the backdrop, because a pane pale enough to hide text is also pale enough
+ * to lose pale glyphs. There is deliberately no gloss band
  * across the upper half -- a bright highlight over the top half of a rounded
  * rect is the signature of moulded plastic, and it is what made an earlier
  * version of this read as a toy. What sells glass instead is restraint: low
@@ -66,7 +70,12 @@ final class GlassKeyboardView extends View {
      */
     private static final float WORD_SHARE = 0.72f;
 
-    private static final float STRIP_HEIGHT_DP = 40f;
+    /**
+     * Tight on purpose. The strip is the first thing under the top edge of the
+     * window, so any slack in it reads as a gap between the app and the
+     * keyboard rather than as breathing room around the words.
+     */
+    private static final float STRIP_HEIGHT_DP = 32f;
     private static final float LETTER_ROW_DP = 46f;
     /** Cap in landscape, where a letter-row-sized keyboard would eat the screen. */
     private static final float MAX_ROW_SHARE_OF_SCREEN = 0.075f;
@@ -360,8 +369,10 @@ final class GlassKeyboardView extends View {
         boolean hasEmoji = !emoji.isEmpty();
         float wordsWidth = hasEmoji ? stripWidth * WORD_SHARE : stripWidth;
         float wordWidth = wordsWidth / WORD_SLOTS;
-        float top = gap * 0.5f;
-        float bottom = stripHeight - gap * 0.5f;
+        // The slots fill the strip. Insetting them left empty space above the
+        // words with nothing in it.
+        float top = 0f;
+        float bottom = stripHeight;
         for (int i = 0; i < WORD_SLOTS; i++) {
             wordSlots[i].set(stripLeft + wordWidth * i, top,
                     stripLeft + wordWidth * (i + 1), bottom);
@@ -387,11 +398,19 @@ final class GlassKeyboardView extends View {
         int top;
         int bottom;
         if (night) {
-            top = 0x3DFFFFFF;
-            bottom = 0x21FFFFFF;
+            // Dark panes over a dark backdrop, not pale ones. At the opacity
+            // needed to hide text underneath, a white pane leaves white glyphs
+            // sitting on near-white and unreadable -- so over dark the pane goes
+            // the other way and the glyphs stay light. The tint still carries
+            // the colour behind it; a red wallpaper gives a dark red key.
+            //
+            // Alpha rises towards the bottom here, which is the same "lit from
+            // above" reading as the white panes getting fainter downwards.
+            top = 0x73000000;
+            bottom = 0x8C000000;
         } else {
-            top = 0x96FFFFFF;
-            bottom = 0x63FFFFFF;
+            top = 0xD9FFFFFF;
+            bottom = 0xC4FFFFFF;
         }
         top = Appearance.scaleAlpha(top, opacityScale);
         bottom = Appearance.scaleAlpha(bottom, opacityScale);
@@ -490,8 +509,8 @@ final class GlassKeyboardView extends View {
     }
 
     private void drawStrip(Canvas canvas) {
-        text.setTextSize(stripHeight * 0.34f);
-        emojiPaint.setTextSize(stripHeight * 0.46f);
+        text.setTextSize(stripHeight * 0.40f);
+        emojiPaint.setTextSize(stripHeight * 0.54f);
         float radius = stripHeight * 0.32f;
 
         for (int i = 0; i < WORD_SLOTS; i++) {

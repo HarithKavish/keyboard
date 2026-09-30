@@ -155,7 +155,8 @@ def blend(base, layer):
     return Image.alpha_composite(base, layer)
 
 
-def glass_key(size, x, y, w, h, radius, a_top, a_bot, rim_top, rim_bot, stroke):
+def glass_key(size, x, y, w, h, radius, a_top, a_bot, rim_top, rim_bot, stroke,
+              tint=(255, 255, 255)):
     layer = Image.new("RGBA", size, (0, 0, 0, 0))
     # Fake soft shadow: three offset rounded rects with falling alpha.
     for off, sa in ((3, 0x16), (2, 0x12), (1, 0x0E)):
@@ -173,7 +174,7 @@ def glass_key(size, x, y, w, h, radius, a_top, a_bot, rim_top, rim_bot, stroke):
         y1 = y + h * (i + 1) / steps + 1
         band = Image.new("RGBA", size, (0, 0, 0, 0))
         ImageDraw.Draw(band).rounded_rectangle(
-            [x, y, x + w, y + h], radius=radius, fill=(255, 255, 255, alpha))
+            [x, y, x + w, y + h], radius=radius, fill=tint + (alpha,))
         layer.paste(band.crop((0, int(y0), size[0], int(min(y1, y + h)))), (0, int(y0)))
     layer = blend(layer, ramped_outline(size, x, y, w, h, radius, stroke,
                                         (255, 255, 255), rim_top, rim_bot))
@@ -182,7 +183,7 @@ def glass_key(size, x, y, w, h, radius, a_top, a_bot, rim_top, rim_bot, stroke):
 
 def draw_keyboard(bg, page, night):
     heights = ROW_HEIGHTS[page]
-    strip_height = 40 * DENSITY
+    strip_height = 32 * DENSITY
     height = round(min(46 * DENSITY, SCREEN_H * 0.075) * sum(ROW_HEIGHTS["letters"])
                    + strip_height)
     rows_placed, letter_row, gap, pad_h, available = layout(
@@ -190,7 +191,11 @@ def draw_keyboard(bg, page, night):
     radius = 10 * DENSITY
     stroke = max(1, int(DENSITY * 0.75))
 
-    top, bottom = (0x3D, 0x21) if night else (0x96, 0x63)
+    # Over a dark backdrop the pane tints dark and the glyphs stay light; over a
+    # light one it tints light and the glyphs go dark. At the opacity needed to
+    # hide what is behind, a pale pane would swallow pale glyphs.
+    tint = (0, 0, 0) if night else (255, 255, 255)
+    top, bottom = (0x73, 0x8C) if night else (0xD9, 0xC4)
     rim_top, rim_bottom = (0x99, 0x26) if night else (0xB3, 0x2B)
     text_rgb = (255, 255, 255) if night else (0x14, 0x16, 0x1C)
 
@@ -211,7 +216,8 @@ def draw_keyboard(bg, page, night):
             if code < 0 or code == ord(" "):
                 a_top, a_bot = int(top * 0.6), int(bottom * 0.6)
             board = blend(board, glass_key((W, height), x, y, w, h, radius,
-                                           a_top, a_bot, rim_top, rim_bottom, stroke))
+                                           a_top, a_bot, rim_top, rim_bottom, stroke,
+                                           tint))
             if code in (SHIFT, BACKSPACE, ENTER, EMOJI):
                 draw_icon(ImageDraw.Draw(board), code, x, y, w, h,
                           text_rgb + (255,), DENSITY)
@@ -235,7 +241,7 @@ def draw_strip(board, strip_height, pad_h, available, text_rgb, emoji):
     With no emoji to show, the words take the whole strip rather than leaving a
     third of it empty."""
     d = ImageDraw.Draw(board)
-    word_font = ImageFont.truetype(TEXT_FONT, int(strip_height * 0.34))
+    word_font = ImageFont.truetype(TEXT_FONT, int(strip_height * 0.40))
     words_width = available * 0.72 if emoji else available
     slot = words_width / 3
     for i in range(3):
@@ -247,7 +253,7 @@ def draw_strip(board, strip_height, pad_h, available, text_rgb, emoji):
                anchor="mm", fill=text_rgb + (255,))
 
     try:
-        emoji_font = ImageFont.truetype(EMOJI_FONT, int(strip_height * 0.46))
+        emoji_font = ImageFont.truetype(EMOJI_FONT, int(strip_height * 0.54))
         colour = True
     except OSError:
         emoji_font = word_font

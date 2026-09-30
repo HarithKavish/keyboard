@@ -469,6 +469,10 @@ public final class GlassKeyboardService extends InputMethodService
             // key marked ABC would hand back the symbols.
             keyboard.showLetters();
         }
+        // Changing page clears the shift state, and nothing else would put it
+        // back: coming out of the picker into an empty field left the keyboard
+        // in lower case when it should be starting a sentence.
+        refreshSuggestions();
     }
 
     // ----------------------------------------------------------------- plumbing
