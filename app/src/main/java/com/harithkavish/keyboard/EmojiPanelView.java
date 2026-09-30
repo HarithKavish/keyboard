@@ -93,11 +93,15 @@ final class EmojiPanelView extends View {
     private Boolean backdropLight;
     private Shader cellShader;
     private Shader cellRimShader;
+    private Shader headerShader;
+    private Shader headerRimShader;
     private Shader barShader;
     private Shader barShaderPressed;
     private Shader barRimShader;
 
     private float cell;
+    /** Side margin, the same 14dp the keys use, so the two pages line up. */
+    private float padH;
     private float headerHeight;
     private float barHeight;
     private float sideWidth;
@@ -175,7 +179,6 @@ final class EmojiPanelView extends View {
                 : mode == Configuration.UI_MODE_NIGHT_YES;
         int ink = night ? 0xFFFFFFFF : 0xFF14161C;
         headerPaint.setColor(ink);
-        headerPaint.setAlpha(0xB3);
         headerPaint.setShadowLayer(density, 0f, density * 0.5f,
                 night ? 0x66000000 : 0x40FFFFFF);
         tabPaint.setColor(ink);
@@ -191,6 +194,20 @@ final class EmojiPanelView extends View {
         return density * 4f;
     }
 
+    private float headerInset() {
+        return density * 3f;
+    }
+
+    /** The top of the scrolling grid: everything above it is pinned. */
+    private float gridTop() {
+        return headerHeight;
+    }
+
+    /** How much of the grid is on screen, between the heading and the bar. */
+    private float gridHeight() {
+        return viewportHeight() - gridTop();
+    }
+
     private void buildShaders() {
         if (cell <= 0f) {
             return;
@@ -203,6 +220,12 @@ final class EmojiPanelView extends View {
         float pane = cell - cellInset() * 2f;
         cellShader = Glass.vertical(pane, top, bottom);
         cellRimShader = Glass.vertical(pane, rimA, rimB);
+
+        // The heading is a button-weight pane, not a cell-weight one: it is a
+        // label rather than something to press, so it sits back with the bar.
+        float headerPane = headerHeight - headerInset() * 2f;
+        headerShader = Glass.vertical(headerPane, Glass.dim(top), Glass.dim(bottom));
+        headerRimShader = Glass.vertical(headerPane, rimA, rimB);
 
         // The bar sits back a step, the same way the keyboard's command keys do,
         // so the emoji themselves stay the thing being looked at.
@@ -311,10 +334,11 @@ final class EmojiPanelView extends View {
     @Override
     protected void onSizeChanged(int w, int h, int oldW, int oldH) {
         super.onSizeChanged(w, h, oldW, oldH);
-        cell = w / (float) COLUMNS;
+        padH = 14f * density;
+        cell = (w - 2f * padH) / COLUMNS;
         barHeight = 46f * density;
-        sideWidth = w * SIDE_SHARE;
-        headerHeight = 24f * density;
+        sideWidth = (w - 2f * padH) * SIDE_SHARE;
+        headerHeight = 30f * density;
         emojiPaint.setTextSize(cell * 0.60f);
         headerPaint.setTextSize(12f * density);
         buildShaders();
@@ -332,7 +356,8 @@ final class EmojiPanelView extends View {
         restorePage();
         String[] items = sectionItems.get(page);
         int rows = (items.length + COLUMNS - 1) / COLUMNS;
-        contentHeight = headerHeight + rows * cell;
+        // The heading is pinned, so it is not part of what scrolls.
+        contentHeight = rows * cell;
     }
 
     private float viewportHeight() {
@@ -340,7 +365,7 @@ final class EmojiPanelView extends View {
     }
 
     private void setScroll(float value) {
-        float max = Math.max(0f, contentHeight - viewportHeight());
+        float max = Math.max(0f, contentHeight - gridHeight());
         float clamped = Math.max(0f, Math.min(max, value));
         if (clamped != scroll) {
             scroll = clamped;
@@ -356,22 +381,22 @@ final class EmojiPanelView extends View {
         if (cell <= 0f || sectionItems.isEmpty()) {
             return;
         }
+        drawHeading(canvas);
+
         int save = canvas.save();
-        canvas.clipRect(0f, 0f, getWidth(), viewportHeight());
-        canvas.translate(0f, -scroll);
+        // Clipped below the heading, so rows scroll under it rather than over it.
+        canvas.clipRect(0f, gridTop(), getWidth(), viewportHeight());
+        canvas.translate(0f, gridTop() - scroll);
 
         String[] items = sectionItems.get(page);
-        canvas.drawText(sectionNames.get(page), 14f * density,
-                headerHeight * 0.75f, headerPaint);
-
         float viewTop = scroll;
-        float viewBottom = scroll + viewportHeight();
+        float viewBottom = scroll + gridHeight();
         float inset = cellInset();
         float pane = cell - inset * 2f;
         float radius = pane * 0.28f;
         for (int i = 0; i < items.length; i++) {
-            float x = (i % COLUMNS) * cell;
-            float y = headerHeight + (i / COLUMNS) * cell;
+            float x = padH + (i % COLUMNS) * cell;
+            float y = (i / COLUMNS) * cell;
             if (y + cell < viewTop || y > viewBottom) {
                 continue;
             }
@@ -386,6 +411,23 @@ final class EmojiPanelView extends View {
         drawBottomBar(canvas);
     }
 
+    /**
+     * The category name, pinned above the grid. On the same glass as the
+     * buttons, because bare text over a wallpaper was the one label here with
+     * nothing behind it to be read against.
+     */
+    private void drawHeading(Canvas canvas) {
+        float hi = headerInset();
+        float pane = headerHeight - hi * 2f;
+        Glass.drawPane(canvas, fill, rim, shadow, density, padH, hi,
+                getWidth() - padH * 2f, pane, pane * 0.34f,
+                headerShader, headerRimShader);
+        float baseline = headerHeight / 2f
+                - (headerPaint.descent() + headerPaint.ascent()) / 2f;
+        canvas.drawText(sectionNames.get(page), padH + 14f * density, baseline,
+                headerPaint);
+    }
+
     private void drawBottomBar(Canvas canvas) {
         float top = getHeight() - barHeight;
         float cy = top + barHeight / 2f;
@@ -394,23 +436,25 @@ final class EmojiPanelView extends View {
         tabPaint.setTextSize(14f * density);
         float bi = barInset();
         float barPane = barHeight - bi * 2f;
-        float barRadius = barPane * 0.34f;
-        Glass.drawPane(canvas, fill, rim, shadow, density, bi, top + bi,
+        float barRadius = barPane * 0.30f;
+        Glass.drawPane(canvas, fill, rim, shadow, density, padH + bi, top + bi,
                 sideWidth - bi * 2f, barPane, barRadius,
                 pressedAbc ? barShaderPressed : barShader, barRimShader);
-        canvas.drawText("ABC", sideWidth / 2f,
+        canvas.drawText("ABC", padH + sideWidth / 2f,
                 cy - (tabPaint.descent() + tabPaint.ascent()) / 2f, tabPaint);
 
         int tabs = sectionItems.size();
         if (tabs > 0) {
-            float width = (getWidth() - 2f * sideWidth) / tabs;
+            float width = (getWidth() - 2f * padH - 2f * sideWidth) / tabs;
             tabPaint.setTextSize(Math.min(cell, width) * 0.46f);
             int current = currentSection();
             for (int i = 0; i < tabs; i++) {
-                float cx = sideWidth + width * (i + 0.5f);
-                float tabW = Math.min(width - density * 2f, barHeight);
+                float cx = padH + sideWidth + width * (i + 0.5f);
+                // Square, with an emoji cell's corner: these hold emoji, so they
+                // should read as the same kind of thing.
+                float side = Math.min(width - density * 2f, barPane);
                 Glass.drawPane(canvas, fill, rim, shadow, density,
-                        cx - tabW / 2f, top + bi, tabW, barPane, barRadius,
+                        cx - side / 2f, cy - side / 2f, side, side, side * 0.28f,
                         (i == current || i == pressedTab)
                                 ? barShaderPressed : barShader, barRimShader);
                 String label = tabLabel(i);
@@ -425,9 +469,9 @@ final class EmojiPanelView extends View {
 
         // Backspace, bottom right.
         float s = 9f * density;
-        float bx = getWidth() - sideWidth / 2f;
+        float bx = getWidth() - padH - sideWidth / 2f;
         Glass.drawPane(canvas, fill, rim, shadow, density,
-                getWidth() - sideWidth + bi, top + bi, sideWidth - bi * 2f,
+                getWidth() - padH - sideWidth + bi, top + bi, sideWidth - bi * 2f,
                 barPane, barRadius,
                 pressedBackspace ? barShaderPressed : barShader, barRimShader);
         icon.setStrokeWidth(Math.max(density, s * 0.16f));
@@ -492,9 +536,9 @@ final class EmojiPanelView extends View {
                 }
                 tracker.addMovement(event);
                 if (y >= getHeight() - barHeight) {
-                    if (x < sideWidth) {
+                    if (x < padH + sideWidth) {
                         pressedAbc = true;
-                    } else if (x > getWidth() - sideWidth) {
+                    } else if (x > getWidth() - padH - sideWidth) {
                         pressedBackspace = true;
                     } else {
                         pressedTab = tabAt(x);
@@ -555,12 +599,12 @@ final class EmojiPanelView extends View {
         clearBarPresses();
         invalidate();
         boolean inBar = y >= getHeight() - barHeight;
-        if (wasAbc && inBar && x < sideWidth) {
+        if (wasAbc && inBar && x < padH + sideWidth) {
             performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
             if (listener != null) {
                 listener.onBackToKeyboard();
             }
-        } else if (wasBackspace && inBar && x > getWidth() - sideWidth) {
+        } else if (wasBackspace && inBar && x > getWidth() - padH - sideWidth) {
             performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
             if (listener != null) {
                 listener.onBackspace();
@@ -591,22 +635,22 @@ final class EmojiPanelView extends View {
         if (tabs == 0) {
             return -1;
         }
-        float width = (getWidth() - 2f * sideWidth) / tabs;
-        int index = (int) ((x - sideWidth) / width);
+        float width = (getWidth() - 2f * padH - 2f * sideWidth) / tabs;
+        int index = (int) ((x - padH - sideWidth) / width);
         return Math.max(0, Math.min(tabs - 1, index));
     }
 
     private void handleTap(float x, float y) {
-        if (y >= viewportHeight() || sectionItems.isEmpty()) {
+        if (y < gridTop() || y >= viewportHeight() || sectionItems.isEmpty()) {
             return;
         }
         String[] items = sectionItems.get(page);
-        float contentY = y + scroll;
-        if (contentY < headerHeight) {
+        float contentY = y - gridTop() + scroll;
+        int row = (int) (contentY / cell);
+        int column = (int) ((x - padH) / cell);
+        if (x < padH || column < 0 || column >= COLUMNS) {
             return;
         }
-        int row = (int) ((contentY - headerHeight) / cell);
-        int column = (int) (x / cell);
         int index = row * COLUMNS + column;
         if (index < 0 || index >= items.length) {
             return;

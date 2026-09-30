@@ -253,6 +253,23 @@ the opacity setting did not reach.
 `GlassKeyboardService.pushAppearance()` pushes the setting to both views for the
 same reason. Reaching only one of them is a bug waiting to be reported.
 
+**The picker's heading is pinned, and the grid scrolls under it.** `gridTop()`
+is where the scrolling area starts and `contentHeight` counts only the rows, so
+the heading is not part of what scrolls. Anything that converts a touch to a cell
+has to go through `gridTop()` too, or taps land a row out once the grid is
+scrolled.
+
+Both the picker and the keys use a 14dp side margin. It is written down twice,
+once in `layoutKeys()` and once in `onSizeChanged()`; if one moves, move the
+other, because the two pages sitting in the same window at different widths is
+immediately visible.
+
+**The emoji key's face is drawn at 0.78 of the shared icon basis.** Every other
+icon uses the basis directly. A closed circle reads larger than an arrow or a
+bracket drawn to the same bounding box, so matching by number left that one
+looking oversized beside the letters. `tools/preview.py` carries the same factor
+and has to be changed with it.
+
 **The emoji picker shows one category at a time.** The tabs are the only way
 between them: a flick cannot drift out of the category being browsed, and
 scrolling stops at the end of it rather than running on into the next. `page`

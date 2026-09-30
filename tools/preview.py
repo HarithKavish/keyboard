@@ -85,21 +85,25 @@ def draw_icon(d, code, x, y, w, h, colour, density, caps=False):
         d.line([(cx + s * 0.46, cy - s * 0.22), (cx + s * 0.02, cy + s * 0.22)],
                fill=colour, width=int(lw))
     elif code == EMOJI:
-        r = s * 0.62
-        d.ellipse([cx - r, cy - r, cx + r, cy + r], outline=colour, width=int(lw))
-        eye_r = max(density * 0.8, s * 0.08)
-        for ex in (-s * 0.24, s * 0.24):
-            d.ellipse([cx + ex - eye_r, cy - s * 0.18 - eye_r,
-                       cx + ex + eye_r, cy - s * 0.18 + eye_r], fill=colour)
+        # Smaller than the shared basis, matching drawIcon(): a closed circle
+        # reads larger than an arrow drawn to the same bounding box.
+        f = s * 0.78
+        flw = max(density, f * 0.14)
+        r = f * 0.62
+        d.ellipse([cx - r, cy - r, cx + r, cy + r], outline=colour, width=int(flw))
+        eye_r = max(density * 0.8, f * 0.08)
+        for ex in (-f * 0.24, f * 0.24):
+            d.ellipse([cx + ex - eye_r, cy - f * 0.18 - eye_r,
+                       cx + ex + eye_r, cy - f * 0.18 + eye_r], fill=colour)
         # Quadratic smile, sampled -- PIL has no quadTo.
         pts = []
         for i in range(13):
             t = i / 12
-            px = (1 - t) ** 2 * (cx - s * 0.28) + 2 * (1 - t) * t * cx + t ** 2 * (cx + s * 0.28)
-            py = ((1 - t) ** 2 * (cy + s * 0.14) + 2 * (1 - t) * t * (cy + s * 0.46)
-                  + t ** 2 * (cy + s * 0.14))
+            px = (1 - t) ** 2 * (cx - f * 0.28) + 2 * (1 - t) * t * cx + t ** 2 * (cx + f * 0.28)
+            py = ((1 - t) ** 2 * (cy + f * 0.14) + 2 * (1 - t) * t * (cy + f * 0.46)
+                  + t ** 2 * (cy + f * 0.14))
             pts.append((px, py))
-        d.line(pts, fill=colour, width=int(lw), joint="curve")
+        d.line(pts, fill=colour, width=int(flw), joint="curve")
     elif code == ENTER:
         d.line([(cx + s * 0.62, cy - s * 0.58), (cx + s * 0.62, cy + s * 0.22),
                 (cx - s * 0.52, cy + s * 0.22)], fill=colour, width=int(lw), joint="curve")
@@ -183,7 +187,7 @@ def glass_key(size, x, y, w, h, radius, a_top, a_bot, rim_top, rim_bot, stroke,
 
 def draw_keyboard(bg, page, night):
     heights = ROW_HEIGHTS[page]
-    strip_height = 32 * DENSITY
+    strip_height = 38 * DENSITY
     height = round(min(46 * DENSITY, SCREEN_H * 0.075) * sum(ROW_HEIGHTS["letters"])
                    + strip_height)
     rows_placed, letter_row, gap, pad_h, available = layout(
@@ -238,17 +242,20 @@ def draw_keyboard(bg, page, night):
 
 def draw_strip(board, strip_height, pad_h, available, text_rgb, emoji,
                size, tint, a_top, a_bot, rim_top, rim_bot, stroke):
+    # The band is taller than the panes; the extra sits below, between the
+    # suggestions and the top row of keys.
+    slot_height = strip_height - 6 * DENSITY
     """Three words, best in the centre, then two emoji on the right.
 
     With no emoji to show, the words take the whole strip rather than leaving a
     third of it empty."""
     d = ImageDraw.Draw(board)
-    word_font = ImageFont.truetype(TEXT_FONT, int(strip_height * 0.40))
+    word_font = ImageFont.truetype(TEXT_FONT, int(slot_height * 0.44))
     words_width = available * 0.72 if emoji else available
     slot = words_width / 3
     # The suggestions sit on the same glass as the keys.
     inset = 2 * DENSITY
-    radius = strip_height * 0.32
+    radius = slot_height * 0.32
     slot = words_width / 3
     panes = Image.new("RGBA", size, (0, 0, 0, 0))
     for i in range(3):
@@ -257,13 +264,13 @@ def draw_strip(board, strip_height, pad_h, available, text_rgb, emoji,
             continue
         x = pad_h + slot * i + inset
         panes = blend(panes, glass_key(size, x, inset, slot - inset * 2,
-                                       strip_height - inset * 2, radius,
+                                       slot_height - inset * 2, radius,
                                        a_top, a_bot, rim_top, rim_bot, stroke, tint))
     for i in range(min(2, len(emoji))):
         x = pad_h + words_width + ((available - words_width) / 2) * i + inset
         panes = blend(panes, glass_key(size, x, inset,
                                        (available - words_width) / 2 - inset * 2,
-                                       strip_height - inset * 2, radius,
+                                       slot_height - inset * 2, radius,
                                        a_top, a_bot, rim_top, rim_bot, stroke, tint))
     board.paste(panes, (0, 0), panes)
     d = ImageDraw.Draw(board)
@@ -273,11 +280,11 @@ def draw_strip(board, strip_height, pad_h, available, text_rgb, emoji,
         if rank >= len(SUGGEST_WORDS):
             continue
         cx = pad_h + slot * (i + 0.5)
-        d.text((cx, strip_height / 2), SUGGEST_WORDS[rank], font=word_font,
+        d.text((cx, slot_height / 2), SUGGEST_WORDS[rank], font=word_font,
                anchor="mm", fill=text_rgb + (255,))
 
     try:
-        emoji_font = ImageFont.truetype(EMOJI_FONT, int(strip_height * 0.54))
+        emoji_font = ImageFont.truetype(EMOJI_FONT, int(slot_height * 0.58))
         colour = True
     except OSError:
         emoji_font = word_font
@@ -287,10 +294,10 @@ def draw_strip(board, strip_height, pad_h, available, text_rgb, emoji,
     for i, glyph in enumerate(emoji[:2]):
         cx = emoji_left + emoji_slot * (i + 0.5)
         try:
-            d.text((cx, strip_height / 2), glyph, font=emoji_font, anchor="mm",
+            d.text((cx, slot_height / 2), glyph, font=emoji_font, anchor="mm",
                    embedded_color=colour, fill=text_rgb + (255,))
         except (TypeError, OSError):
-            d.text((cx, strip_height / 2), glyph, font=word_font, anchor="mm",
+            d.text((cx, slot_height / 2), glyph, font=word_font, anchor="mm",
                    fill=text_rgb + (255,))
 
 
@@ -345,7 +352,7 @@ def draw_panel(bg, night):
     """The emoji picker: a pane under every cell and every button, and one
     category on screen rather than a single scroll through all of them."""
     height = round(min(46 * DENSITY, SCREEN_H * 0.075) * sum(ROW_HEIGHTS["letters"])
-                   + 32 * DENSITY)
+                   + 38 * DENSITY)
     board = bg.crop((0, bg.height - height, W, bg.height)).convert("RGBA")
 
     tint = (0, 0, 0) if night else (255, 255, 255)
@@ -355,17 +362,24 @@ def draw_panel(bg, night):
     stroke = max(1, round(DENSITY * 0.75))
     dim = lambda a: int(a * 0.6)
 
-    cell = W / COLUMNS
+    pad_h = 14 * DENSITY
+    cell = (W - 2 * pad_h) / COLUMNS
     bar_h = 46 * DENSITY
-    side = W * SIDE_SHARE
-    header_h = 24 * DENSITY
+    side = (W - 2 * pad_h) * SIDE_SHARE
+    header_h = 30 * DENSITY
     inset = 2.5 * DENSITY
     pane = cell - inset * 2
     radius = pane * 0.28
 
     panes = Image.new("RGBA", (W, height), (0, 0, 0, 0))
+    hi = 3 * DENSITY
+    header_pane = header_h - hi * 2
+    panes = blend(panes, glass_key((W, height), pad_h, hi, W - pad_h * 2,
+                                   header_pane, header_pane * 0.34,
+                                   dim(top), dim(bottom), rim_top, rim_bottom,
+                                   stroke, tint))
     for i in range(len(PANEL_EMOJI)):
-        x = (i % COLUMNS) * cell + inset
+        x = pad_h + (i % COLUMNS) * cell + inset
         y = header_h + (i // COLUMNS) * cell + inset
         if y + pane > height - bar_h:
             break
@@ -374,36 +388,39 @@ def draw_panel(bg, night):
 
     bi = 4 * DENSITY
     bar_pane = bar_h - bi * 2
-    bar_radius = bar_pane * 0.34
+    bar_radius = bar_pane * 0.30
     bar_top = height - bar_h + bi
-    panes = blend(panes, glass_key((W, height), bi, bar_top, side - bi * 2,
-                                   bar_pane, bar_radius, dim(top), dim(bottom),
-                                   rim_top, rim_bottom, stroke, tint))
-    panes = blend(panes, glass_key((W, height), W - side + bi, bar_top,
+    cy_bar = height - bar_h / 2
+    panes = blend(panes, glass_key((W, height), pad_h + bi, bar_top,
+                                   side - bi * 2, bar_pane, bar_radius,
+                                   dim(top), dim(bottom), rim_top, rim_bottom,
+                                   stroke, tint))
+    panes = blend(panes, glass_key((W, height), W - pad_h - side + bi, bar_top,
                                    side - bi * 2, bar_pane, bar_radius,
                                    dim(top), dim(bottom), rim_top, rim_bottom,
                                    stroke, tint))
     tabs = len(TAB_LABELS)
-    tab_w = (W - 2 * side) / tabs
+    tab_w = (W - 2 * pad_h - 2 * side) / tabs
     for i in range(tabs):
-        cx = side + tab_w * (i + 0.5)
-        w = min(tab_w - DENSITY * 2, bar_h)
+        cx = pad_h + side + tab_w * (i + 0.5)
+        # Square, with an emoji cell's corner.
+        sq = min(tab_w - DENSITY * 2, bar_pane)
         a, b = (top, bottom) if i == 0 else (dim(top), dim(bottom))
-        panes = blend(panes, glass_key((W, height), cx - w / 2, bar_top, w,
-                                       bar_pane, bar_radius, a, b,
+        panes = blend(panes, glass_key((W, height), cx - sq / 2, cy_bar - sq / 2,
+                                       sq, sq, sq * 0.28, a, b,
                                        rim_top, rim_bottom, stroke, tint))
     board.paste(panes, (0, 0), panes)
 
     d = ImageDraw.Draw(board)
     header_font = ImageFont.truetype(TEXT_FONT, int(12 * DENSITY))
     emoji_font = ImageFont.truetype(EMOJI_FONT, int(cell * 0.60))
-    tab_font = ImageFont.truetype(EMOJI_FONT, int(min(cell, tab_w) * 0.46))
+    tab_font = ImageFont.truetype(EMOJI_FONT, int(min(cell, tab_w) * 0.50))
     abc_font = ImageFont.truetype(TEXT_FONT, int(14 * DENSITY))
 
-    d.text((14 * DENSITY, header_h * 0.75), "Smileys", font=header_font,
-           anchor="ls", fill=ink + (0xB3,))
+    d.text((pad_h + 14 * DENSITY, header_h / 2), "Smileys", font=header_font,
+           anchor="lm", fill=ink + (255,))
     for i, glyph in enumerate(PANEL_EMOJI):
-        x = (i % COLUMNS) * cell
+        x = pad_h + (i % COLUMNS) * cell
         y = header_h + (i // COLUMNS) * cell
         if y + cell > height - bar_h:
             break
@@ -411,11 +428,12 @@ def draw_panel(bg, night):
                anchor="mm", embedded_color=True)
 
     cy = height - bar_h / 2
-    d.text((side / 2, cy), "ABC", font=abc_font, anchor="mm", fill=ink + (255,))
+    d.text((pad_h + side / 2, cy), "ABC", font=abc_font, anchor="mm",
+           fill=ink + (255,))
     for i, glyph in enumerate(TAB_LABELS):
-        cx = side + tab_w * (i + 0.5)
+        cx = pad_h + side + tab_w * (i + 0.5)
         d.text((cx, cy), glyph, font=tab_font, anchor="mm", embedded_color=True)
-    bx, s = W - side / 2, 9 * DENSITY
+    bx, s = W - pad_h - side / 2, 9 * DENSITY
     d.line([(bx - s * 0.95, cy), (bx - s * 0.38, cy - s * 0.64),
             (bx + s * 0.95, cy - s * 0.64), (bx + s * 0.95, cy + s * 0.64),
             (bx - s * 0.38, cy + s * 0.64), (bx - s * 0.95, cy)],

@@ -128,9 +128,10 @@ backdrop disappear no matter how opaque they are. That can be turned off.
 ### The emoji picker
 
 One category at a time, chosen from the tabs along the bottom — not a single
-scroll running through all of them. Every emoji and every button sits on the same
-glass as the keys, at the same opacity, with the wallpaper showing between them
-rather than behind a solid panel.
+scroll running through all of them. The category name stays pinned at the top
+while the emoji scroll underneath it. Every emoji, every button and the heading
+itself sit on the same glass as the keys, at the same opacity, with the wallpaper
+showing between them rather than behind a solid panel.
 
 ### What it learns, and turning it off
 

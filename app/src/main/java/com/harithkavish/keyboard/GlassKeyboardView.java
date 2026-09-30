@@ -79,7 +79,15 @@ final class GlassKeyboardView extends View {
      * window, so any slack in it reads as a gap between the app and the
      * keyboard rather than as breathing room around the words.
      */
-    private static final float STRIP_HEIGHT_DP = 32f;
+    private static final float STRIP_HEIGHT_DP = 38f;
+
+    /**
+     * Space between the suggestions and the first row of keys. The strip band is
+     * taller than the panes by this much and the gap is all at the bottom, so
+     * the suggestions still sit tight under the top edge of the window while no
+     * longer touching the number row.
+     */
+    private static final float STRIP_GAP_BELOW_DP = 6f;
 
     /**
      * How far the finger travels before a press on the space bar becomes a swipe.
@@ -386,10 +394,9 @@ final class GlassKeyboardView extends View {
         boolean hasEmoji = !emoji.isEmpty();
         float wordsWidth = hasEmoji ? stripWidth * WORD_SHARE : stripWidth;
         float wordWidth = wordsWidth / WORD_SLOTS;
-        // The slots fill the strip. Insetting them left empty space above the
-        // words with nothing in it.
+        // Flush with the top, clear of the keys below.
         float top = 0f;
-        float bottom = stripHeight;
+        float bottom = stripSlotHeight();
         for (int i = 0; i < WORD_SLOTS; i++) {
             wordSlots[i].set(stripLeft + wordWidth * i, top,
                     stripLeft + wordWidth * (i + 1), bottom);
@@ -425,7 +432,7 @@ final class GlassKeyboardView extends View {
         bodyShaderCommand = Glass.vertical(keyHeight, Glass.dim(top), Glass.dim(bottom));
         rimShader = Glass.vertical(keyHeight, rimA, rimB);
 
-        float paneHeight = stripHeight - stripInset() * 2f;
+        float paneHeight = stripSlotHeight() - stripInset() * 2f;
         stripShader = Glass.vertical(paneHeight, top, bottom);
         stripShaderPressed = Glass.vertical(paneHeight, Glass.brighten(top),
                 Glass.brighten(bottom));
@@ -437,6 +444,11 @@ final class GlassKeyboardView extends View {
     /** How far a suggestion's pane sits inside its slot, so they do not touch. */
     private float stripInset() {
         return density * 2f;
+    }
+
+    /** The part of the strip band the suggestions actually occupy. */
+    private float stripSlotHeight() {
+        return stripHeight - density * STRIP_GAP_BELOW_DP;
     }
 
     /**
@@ -506,8 +518,10 @@ final class GlassKeyboardView extends View {
     }
 
     private void drawStrip(Canvas canvas) {
-        text.setTextSize(stripHeight * 0.40f);
-        emojiPaint.setTextSize(stripHeight * 0.54f);
+        // Sized against the panes rather than the band, so the gap below does
+        // not quietly shrink the words.
+        text.setTextSize(stripSlotHeight() * 0.44f);
+        emojiPaint.setTextSize(stripSlotHeight() * 0.58f);
         float radius = stripHeight * 0.32f;
 
         for (int i = 0; i < WORD_SLOTS; i++) {
@@ -670,17 +684,24 @@ final class GlassKeyboardView extends View {
                 // A face: ring, two eyes, and a smile. Drawn rather than set as
                 // text so it takes the key's own colour instead of arriving as a
                 // full-colour glyph that would fight the glass.
-                canvas.drawCircle(cx, cy, s * 0.62f, icon);
-                float eyeX = s * 0.24f;
-                float eyeY = s * 0.18f;
-                float eyeR = Math.max(density * 0.8f, s * 0.08f);
+                //
+                // Smaller than the shared basis on purpose. A closed circle reads
+                // larger than an arrow or a bracket drawn to the same bounding
+                // box, so matching the others by number left this one looking
+                // oversized beside the letters.
+                float f = s * 0.78f;
+                icon.setStrokeWidth(Math.max(density, f * 0.14f));
+                canvas.drawCircle(cx, cy, f * 0.62f, icon);
+                float eyeX = f * 0.24f;
+                float eyeY = f * 0.18f;
+                float eyeR = Math.max(density * 0.8f, f * 0.08f);
                 icon.setStyle(Paint.Style.FILL);
                 canvas.drawCircle(cx - eyeX, cy - eyeY, eyeR, icon);
                 canvas.drawCircle(cx + eyeX, cy - eyeY, eyeR, icon);
                 icon.setStyle(Paint.Style.STROKE);
                 iconPath.reset();
-                iconPath.moveTo(cx - s * 0.28f, cy + s * 0.14f);
-                iconPath.quadTo(cx, cy + s * 0.46f, cx + s * 0.28f, cy + s * 0.14f);
+                iconPath.moveTo(cx - f * 0.28f, cy + f * 0.14f);
+                iconPath.quadTo(cx, cy + f * 0.46f, cx + f * 0.28f, cy + f * 0.14f);
                 canvas.drawPath(iconPath, icon);
                 return;
 
