@@ -12,6 +12,7 @@ import android.view.ViewParent;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
 import android.widget.FrameLayout;
+import android.widget.LinearLayout;
 
 import java.io.BufferedReader;
 import java.io.IOException;
@@ -30,7 +31,8 @@ import java.util.List;
  * thing typed was an autocorrection the person might be about to reject.
  */
 public final class GlassKeyboardService extends InputMethodService
-        implements GlassKeyboardView.Listener, EmojiPanelView.Listener {
+        implements GlassKeyboardView.Listener, EmojiPanelView.Listener,
+        SuggestionStripView.Listener {
 
     /**
      * Enough to find the sentence the cursor is in. Longer than it needs to be
@@ -50,6 +52,7 @@ public final class GlassKeyboardService extends InputMethodService
     private FrameLayout root;
     private GlassKeyboardView keyboard;
     private EmojiPanelView emojiPanel;
+    private SuggestionStripView strip;
     private Predictor predictor;
 
     /** The word the last autocorrection replaced, while it can still be undone. */
@@ -144,13 +147,27 @@ public final class GlassKeyboardService extends InputMethodService
         emojiPanel.setListener(this);
         emojiPanel.setVisibility(View.GONE);
 
-        root = new FrameLayout(this);
-        // Both wrap: each view measures itself to the keyboard's height, so the
-        // picker never grows to fill the screen behind it.
-        root.addView(keyboard, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        root.addView(emojiPanel, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        // One row, above both pages. It belongs to the input rather than to a
+        // page, so it is a sibling of them and not a band inside either.
+        strip = new SuggestionStripView(this);
+        strip.setListener(this);
+
+        FrameLayout pages = new FrameLayout(this);
+        pages.addView(keyboard, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT));
+        pages.addView(emojiPanel, new FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.WRAP_CONTENT));
+
+        LinearLayout root = new LinearLayout(this);
+        root.setOrientation(LinearLayout.VERTICAL);
+        root.addView(strip, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+        root.addView(pages, new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
         return root;
     }
 
@@ -550,6 +567,31 @@ public final class GlassKeyboardService extends InputMethodService
         }
     }
 
+    /**
+     * The keyboard changed page, or the shift key moved. Nothing about which
+     * words are suggested depends on either, but how they are capitalised does,
+     * and the row is a separate view now -- so it has to be told.
+     */
+    @Override
+    public void onKeyboardStateChanged() {
+        refreshSuggestions();
+    }
+
+    /**
+     * The space bar was swiped. The best suggestion lives in the row, so taking
+     * it here is the same act as tapping the middle slot.
+     */
+    @Override
+    public void onSpaceSwipe() {
+        if (strip == null) {
+            return;
+        }
+        String word = strip.topSuggestion();
+        if (word != null) {
+            onSuggestion(word);
+        }
+    }
+
     @Override
     public void onBackToKeyboard() {
         showKeyboard();
@@ -610,6 +652,9 @@ public final class GlassKeyboardService extends InputMethodService
         if (emojiPanel != null) {
             emojiPanel.setAppearance(scale, light);
         }
+        if (strip != null) {
+            strip.setAppearance(scale, light);
+        }
     }
 
     private void showEmojiPanel() {
@@ -640,13 +685,14 @@ public final class GlassKeyboardService extends InputMethodService
      * field underneath us.
      */
     private void refreshSuggestions() {
-        if (keyboard == null) {
+        if (keyboard == null || strip == null) {
             return;
         }
         InputConnection input = getCurrentInputConnection();
         if (input == null) {
-            keyboard.setSuggestions(Collections.<String>emptyList(),
+            strip.setSuggestions(Collections.<String>emptyList(),
                     Collections.<String>emptyList(), Casing.Mode.NONE);
+            keyboard.setSwipeWord(null);
             return;
         }
         TextContext context = readContext(input);
@@ -672,9 +718,12 @@ public final class GlassKeyboardService extends InputMethodService
         }
         // The letters already typed decide the capitals as much as the shift key
         // does: after "H", the suggestion is "Hi" and not "hi".
-        keyboard.setSuggestions(words,
+        strip.setShiftMode(keyboard.caseMode());
+        strip.setSuggestions(words,
                 predictor.predictEmoji(context.previous, context.current),
                 Casing.of(context.current));
+        // The space bar draws this mid-swipe, so it has to follow the row.
+        keyboard.setSwipeWord(strip.topSuggestion());
     }
 
     /** What the text before the cursor says about where we are. */

@@ -49,15 +49,22 @@ final class GlassKeyboardView extends View {
         /** Called with a character, or with one of the {@link Keys} command codes. */
         void onKey(int code);
 
-        /** A word or a punctuation mark from the suggestion strip was tapped. */
-        void onSuggestion(String word);
 
         /**
-         * An emoji from the suggestion strip was tapped. Named apart from the
-         * picker's callback because it means something different: this one
-         * replaces the word being typed, that one inserts at the cursor.
+         * The page or the shift state changed. The keyboard handles both itself,
+         * but the suggestion row lives above all three pages now and capitalises
+         * against the shift key, so it has to be told. A page that switched
+         * silently used to leave the row showing whatever the previous page had
+         * left behind.
          */
-        void onEmojiSuggestion(String emoji);
+        void onKeyboardStateChanged();
+
+        /**
+         * The space bar was swiped to the right. The best suggestion belongs to
+         * the row, not to the keyboard, so the service is the one that can read
+         * it and type it.
+         */
+        void onSpaceSwipe();
     }
 
     private static final float ROW_UNITS = 10f;
@@ -66,28 +73,17 @@ final class GlassKeyboardView extends View {
     private static final long REPEAT_NEXT_MS = 50;
 
     /** Three words on the left, two emoji on the right. */
-    private static final int WORD_SLOTS = 3;
-    private static final int EMOJI_SLOTS = 2;
     /**
      * Share of the strip the words take when there are emoji to show. With none,
      * the words spread across the whole strip rather than leaving a gap.
      */
-    private static final float WORD_SHARE = 0.72f;
 
     /**
      * Tight on purpose. The strip is the first thing under the top edge of the
      * window, so any slack in it reads as a gap between the app and the
      * keyboard rather than as breathing room around the words.
      */
-    private static final float STRIP_HEIGHT_DP = 38f;
 
-    /**
-     * Space between the suggestions and the first row of keys. The strip band is
-     * taller than the panes by this much and the gap is all at the bottom, so
-     * the suggestions still sit tight under the top edge of the window while no
-     * longer touching the number row.
-     */
-    private static final float STRIP_GAP_BELOW_DP = 6f;
 
     /**
      * How far the finger travels before a press on the space bar becomes a swipe.
@@ -113,9 +109,7 @@ final class GlassKeyboardView extends View {
     private final Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint icon = new Paint(Paint.ANTI_ALIAS_FLAG);
     /** Colour emoji carry their own colour, and a shadow under them looks wrong. */
-    private final Paint emojiPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Path iconPath = new Path();
-    private final RectF slot = new RectF();
 
     private final float density;
     private final int touchSlop;
@@ -126,24 +120,21 @@ final class GlassKeyboardView extends View {
     private float[] rowWeights = Keys.rowHeights(Keys.LETTERS);
     private int page = Keys.LETTERS;
 
-    private final List<String> words = new ArrayList<>(WORD_SLOTS);
-    private final List<String> emoji = new ArrayList<>(EMOJI_SLOTS);
-    private final RectF[] wordSlots = new RectF[WORD_SLOTS];
-    private final RectF[] emojiSlots = new RectF[EMOJI_SLOTS];
     /** Index into the strip, words first then emoji, or -1. */
-    private int pressedSlot = -1;
     /** Where the finger went down, for the space bar swipe. */
     private float downX;
     /** True once a press that began on the space bar has travelled far enough. */
     private boolean spaceSwiped;
+    /**
+     * What that swipe would type, for drawing on the bar. Pushed in by the
+     * service, because the suggestions belong to the row rather than here.
+     */
+    private String swipeWord;
     /** What the word already typed asks for, independent of the shift key. */
-    private Casing.Mode caseHint = Casing.Mode.NONE;
 
     private Keys.Key pressed;
     /** The key lifted off, handed to {@link #performClick()} to act on. */
     private Keys.Key pendingKey;
-    private String pendingSuggestion;
-    private boolean pendingSuggestionIsEmoji;
     private boolean shift;
     private boolean capsLock;
     /**
@@ -154,9 +145,6 @@ final class GlassKeyboardView extends View {
 
     private float keyRadius;
     private float gap;
-    private float stripHeight;
-    private float stripLeft;
-    private float stripWidth;
     private float letterRowHeight;
     private boolean night;
     /** Multiplier on every key's alpha, from the opacity setting and the wallpaper. */
@@ -172,9 +160,6 @@ final class GlassKeyboardView extends View {
     private Shader rimShader;
     // The strip is shorter than a key row, and a gradient built for one height
     // drawn at another clamps and loses its shape.
-    private Shader stripShader;
-    private Shader stripShaderPressed;
-    private Shader stripRimShader;
 
     private final Runnable repeat = new Runnable() {
         @Override
@@ -196,13 +181,6 @@ final class GlassKeyboardView extends View {
         icon.setStrokeCap(Paint.Cap.ROUND);
         icon.setStrokeJoin(Paint.Join.ROUND);
         text.setTextAlign(Paint.Align.CENTER);
-        emojiPaint.setTextAlign(Paint.Align.CENTER);
-        for (int i = 0; i < WORD_SLOTS; i++) {
-            wordSlots[i] = new RectF();
-        }
-        for (int i = 0; i < EMOJI_SLOTS; i++) {
-            emojiSlots[i] = new RectF();
-        }
         readTheme();
     }
 
@@ -223,42 +201,19 @@ final class GlassKeyboardView extends View {
         for (float weight : Keys.rowHeights(Keys.LETTERS)) {
             units += weight;
         }
-        return Math.round(row * units + STRIP_HEIGHT_DP * density);
+        // The suggestion row is a sibling view with its own height; this is the
+        // keys alone.
+        return Math.round(row * units);
     }
 
     void setListener(Listener listener) {
         this.listener = listener;
     }
 
-    /**
-     * Replaces what the strip offers. The centre word slot is the best guess,
-     * the left one second and the right one third, which is the order a thumb
-     * resting under the space bar reaches them in.
-     */
-    void setSuggestions(List<String> newWords, List<String> newEmoji,
-                        Casing.Mode hint) {
-        caseHint = hint == null ? Casing.Mode.NONE : hint;
-        words.clear();
-        emoji.clear();
-        if (newWords != null) {
-            words.addAll(newWords.subList(0, Math.min(WORD_SLOTS, newWords.size())));
-        }
-        if (newEmoji != null) {
-            emoji.addAll(newEmoji.subList(0, Math.min(EMOJI_SLOTS, newEmoji.size())));
-        }
-        // The slots depend on whether there are emoji, so they are laid out here
-        // rather than only when the view is sized.
-        if (stripWidth > 0f) {
-            layoutStrip();
-        }
-        invalidate();
-    }
-
     /** Called when a new field takes focus, so the keyboard never opens mid-symbol. */
     void reset() {
         cancelRepeat();
         pressed = null;
-        pressedSlot = -1;
         shift = false;
         capsLock = false;
         manualShift = false;
@@ -317,7 +272,6 @@ final class GlassKeyboardView extends View {
 
     @Override
     protected void onMeasure(int widthSpec, int heightSpec) {
-        stripHeight = STRIP_HEIGHT_DP * density;
         setMeasuredDimension(MeasureSpec.getSize(widthSpec),
                 preferredHeight(getResources()));
     }
@@ -339,21 +293,18 @@ final class GlassKeyboardView extends View {
         gap = 6f * density;
         keyRadius = 10f * density;
 
-        stripLeft = padH;
-        stripWidth = width - 2f * padH;
-        layoutStrip();
-
         float units = 0f;
         for (float weight : rowWeights) {
             units += weight;
         }
-        letterRowHeight = (height - stripHeight) / units;
+        letterRowHeight = height / units;
         // The reference unit is a letter's width on a full ten-key row. A short
         // row is laid out with this width and centred, so the nine-letter home
         // row sits inside the top row instead of stretching to match it.
-        float referenceUnit = (stripWidth - gap * (ROW_UNITS - 1f)) / ROW_UNITS;
+        float keysWidth = width - 2f * padH;
+        float referenceUnit = (keysWidth - gap * (ROW_UNITS - 1f)) / ROW_UNITS;
 
-        float y = stripHeight;
+        float y = 0f;
         for (int r = 0; r < rows.length; r++) {
             Keys.Key[] row = rows[r];
             float rowHeight = letterRowHeight * rowWeights[r];
@@ -367,13 +318,13 @@ final class GlassKeyboardView extends View {
                 // A full-weight row spans the whole keyboard. Its own gap count
                 // decides the unit, so the row ends flush with the edges rather
                 // than short by the gaps a ten-key row would have used.
-                unit = (stripWidth - gap * (row.length - 1)) / totalWeight;
+                unit = (keysWidth - gap * (row.length - 1)) / totalWeight;
             } else {
                 unit = referenceUnit;
             }
 
             float rowWidth = gap * (row.length - 1) + unit * totalWeight;
-            float x = padH + (stripWidth - rowWidth) / 2f;
+            float x = padH + (keysWidth - rowWidth) / 2f;
             for (Keys.Key key : row) {
                 key.x = x;
                 key.y = y;
@@ -385,34 +336,6 @@ final class GlassKeyboardView extends View {
         }
 
         buildShaders();
-    }
-
-    private void layoutStrip() {
-        // With nothing to put in the emoji slots, the words take the whole strip.
-        // Leaving a third of it empty just to keep the words where they would be
-        // if there were emoji reads as a bug.
-        boolean hasEmoji = !emoji.isEmpty();
-        float wordsWidth = hasEmoji ? stripWidth * WORD_SHARE : stripWidth;
-        float wordWidth = wordsWidth / WORD_SLOTS;
-        // Flush with the top, clear of the keys below.
-        float top = 0f;
-        float bottom = stripSlotHeight();
-        for (int i = 0; i < WORD_SLOTS; i++) {
-            wordSlots[i].set(stripLeft + wordWidth * i, top,
-                    stripLeft + wordWidth * (i + 1), bottom);
-        }
-        if (!hasEmoji) {
-            for (RectF rect : emojiSlots) {
-                rect.setEmpty();
-            }
-            return;
-        }
-        float emojiLeft = stripLeft + wordsWidth;
-        float emojiWidth = (stripWidth - wordsWidth) / EMOJI_SLOTS;
-        for (int i = 0; i < EMOJI_SLOTS; i++) {
-            emojiSlots[i].set(emojiLeft + emojiWidth * i, top,
-                    emojiLeft + emojiWidth * (i + 1), bottom);
-        }
     }
 
     private void buildShaders() {
@@ -432,23 +355,7 @@ final class GlassKeyboardView extends View {
         bodyShaderCommand = Glass.vertical(keyHeight, Glass.dim(top), Glass.dim(bottom));
         rimShader = Glass.vertical(keyHeight, rimA, rimB);
 
-        float paneHeight = stripSlotHeight() - stripInset() * 2f;
-        stripShader = Glass.vertical(paneHeight, top, bottom);
-        stripShaderPressed = Glass.vertical(paneHeight, Glass.brighten(top),
-                Glass.brighten(bottom));
-        stripRimShader = Glass.vertical(paneHeight, rimA, rimB);
-
         rim.setStrokeWidth(Glass.rimWidth(density));
-    }
-
-    /** How far a suggestion's pane sits inside its slot, so they do not touch. */
-    private float stripInset() {
-        return density * 2f;
-    }
-
-    /** The part of the strip band the suggestions actually occupy. */
-    private float stripSlotHeight() {
-        return stripHeight - density * STRIP_GAP_BELOW_DP;
     }
 
     /**
@@ -473,8 +380,6 @@ final class GlassKeyboardView extends View {
                 return;
             }
         }
-
-        drawStrip(canvas);
 
         for (int r = 0; r < rows.length; r++) {
             float rowHeight = letterRowHeight * rowWeights[r] - gap;
@@ -504,80 +409,17 @@ final class GlassKeyboardView extends View {
                         canvas.drawText(label, key.w / 2f, baseline, text);
                     }
                 }
-                if (spaceSwiped && key.code == ' ' && !words.isEmpty()) {
+                if (spaceSwiped && key.code == ' ' && swipeWord != null) {
                     // Without this the gesture is invisible: the bar is blank, so
                     // there is nothing to say which word is about to be committed.
                     text.setTextSize(labelSize);
                     float baseline = key.h / 2f - (text.descent() + text.ascent()) / 2f;
-                    canvas.drawText(shape(words.get(0)), key.w / 2f, baseline, text);
+                    canvas.drawText(swipeWord, key.w / 2f, baseline, text);
                 }
 
                 canvas.restoreToCount(save);
             }
         }
-    }
-
-    private void drawStrip(Canvas canvas) {
-        // Sized against the panes rather than the band, so the gap below does
-        // not quietly shrink the words.
-        text.setTextSize(stripSlotHeight() * 0.44f);
-        emojiPaint.setTextSize(stripSlotHeight() * 0.58f);
-        float radius = stripHeight * 0.32f;
-
-        for (int i = 0; i < WORD_SLOTS; i++) {
-            int rank = rankOfSlot(i);
-            if (rank >= words.size()) {
-                continue;
-            }
-            slot.set(wordSlots[i]);
-            drawSlotPane(canvas, slot, pressedSlot == i, radius);
-            float baseline = slot.centerY() - (text.descent() + text.ascent()) / 2f;
-            canvas.drawText(shape(words.get(rank)), slot.centerX(), baseline, text);
-        }
-
-        for (int i = 0; i < EMOJI_SLOTS && i < emoji.size(); i++) {
-            slot.set(emojiSlots[i]);
-            drawSlotPane(canvas, slot, pressedSlot == WORD_SLOTS + i, radius);
-            float baseline = slot.centerY()
-                    - (emojiPaint.descent() + emojiPaint.ascent()) / 2f;
-            canvas.drawText(emoji.get(i), slot.centerX(), baseline, emojiPaint);
-        }
-    }
-
-    /**
-     * The glass under one suggestion. Inset from its slot so neighbouring
-     * suggestions read as separate panes rather than as one long bar.
-     */
-    private void drawSlotPane(Canvas canvas, RectF bounds, boolean down, float radius) {
-        if (stripShader == null) {
-            return;
-        }
-        float inset = stripInset();
-        float x = bounds.left + inset;
-        float y = bounds.top + inset;
-        float w = bounds.width() - inset * 2f;
-        float h = bounds.height() - inset * 2f;
-        if (w <= 0f || h <= 0f) {
-            return;
-        }
-        drawPane(canvas, x, y, w, h, radius,
-                down ? stripShaderPressed : stripShader, stripRimShader);
-    }
-
-    /** Centre slot holds the best guess, left the second, right the third. */
-    private static int rankOfSlot(int slotIndex) {
-        if (slotIndex == 1) {
-            return 0;
-        }
-        return slotIndex == 0 ? 1 : 2;
-    }
-
-    /**
-     * A suggestion, capitalised to match both the shift key and the letters
-     * already typed, so what is on the strip is what lands in the field.
-     */
-    private String shape(String word) {
-        return Casing.apply(word, Casing.stronger(caseMode(), caseHint));
     }
 
     /**
@@ -734,23 +576,15 @@ final class GlassKeyboardView extends View {
             case MotionEvent.ACTION_DOWN:
                 downX = x;
                 spaceSwiped = false;
-                if (y < stripHeight) {
-                    pressedSlot = slotAt(x, y);
-                    invalidate();
-                    return true;
-                }
                 press(keyAt(x, y));
                 return true;
 
             case MotionEvent.ACTION_MOVE:
-                if (pressedSlot >= 0) {
-                    return true;
-                }
                 // Dragging the space bar to the right takes the best suggestion.
                 // The threshold is well inside the bar, so the gesture is claimed
                 // before the finger could reach the key beyond it.
                 if (!spaceSwiped && pressed != null && pressed.code == ' '
-                        && !words.isEmpty() && x - downX >= density * SWIPE_MIN_DP) {
+                        && x - downX >= density * SWIPE_MIN_DP) {
                     spaceSwiped = true;
                     cancelRepeat();
                     invalidate();
@@ -769,27 +603,14 @@ final class GlassKeyboardView extends View {
                 return true;
 
             case MotionEvent.ACTION_UP:
-                if (pressedSlot >= 0) {
-                    int slotIndex = pressedSlot;
-                    pressedSlot = -1;
-                    invalidate();
-                    if (slotAt(x, y) == slotIndex) {
-                        takeSlot(slotIndex);
-                    }
-                    return true;
-                }
                 if (spaceSwiped) {
                     spaceSwiped = false;
                     cancelRepeat();
                     pressed = null;
                     invalidate();
-                    if (!words.isEmpty()) {
-                        performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
-                        // Shaped, exactly as tapping the middle slot would be: the
-                        // word shown is the word typed and the word learnt.
-                        pendingSuggestion = shape(words.get(0));
-                        pendingSuggestionIsEmoji = false;
-                        performClick();
+                    performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+                    if (listener != null) {
+                        listener.onSpaceSwipe();
                     }
                     return true;
                 }
@@ -808,7 +629,6 @@ final class GlassKeyboardView extends View {
             case MotionEvent.ACTION_CANCEL:
                 cancelRepeat();
                 pressed = null;
-                pressedSlot = -1;
                 spaceSwiped = false;
                 invalidate();
                 return true;
@@ -818,58 +638,9 @@ final class GlassKeyboardView extends View {
         }
     }
 
-    /** Words first, then emoji, or -1 for a miss. */
-    private int slotAt(float x, float y) {
-        for (int i = 0; i < WORD_SLOTS; i++) {
-            if (rankOfSlot(i) < words.size() && wordSlots[i].contains(x, y)) {
-                return i;
-            }
-        }
-        for (int i = 0; i < EMOJI_SLOTS; i++) {
-            if (i < emoji.size() && emojiSlots[i].contains(x, y)) {
-                return WORD_SLOTS + i;
-            }
-        }
-        return -1;
-    }
-
-    private void takeSlot(int slotIndex) {
-        performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
-        if (slotIndex < WORD_SLOTS) {
-            int rank = rankOfSlot(slotIndex);
-            if (rank < words.size()) {
-                // Shaped, so what the person saw is what gets typed and what gets
-                // learnt -- that is how "Harith" is remembered as a name.
-                pendingSuggestion = shape(words.get(rank));
-                pendingSuggestionIsEmoji = false;
-                performClick();
-            }
-            return;
-        }
-        int index = slotIndex - WORD_SLOTS;
-        if (index < emoji.size()) {
-            pendingSuggestion = emoji.get(index);
-            pendingSuggestionIsEmoji = true;
-            performClick();
-        }
-    }
-
     @Override
     public boolean performClick() {
         super.performClick();
-        String suggestion = pendingSuggestion;
-        pendingSuggestion = null;
-        if (suggestion != null) {
-            if (listener != null) {
-                if (pendingSuggestionIsEmoji) {
-                    listener.onEmojiSuggestion(suggestion);
-                } else {
-                    listener.onSuggestion(suggestion);
-                }
-            }
-            consumeOneShotShift();
-            return true;
-        }
         Keys.Key key = pendingKey;
         pendingKey = null;
         if (key != null) {
@@ -910,6 +681,7 @@ final class GlassKeyboardView extends View {
                 }
                 manualShift = true;
                 invalidate();
+                announceState();
                 return;
 
             case Keys.PAGE_LETTERS:
@@ -944,6 +716,19 @@ final class GlassKeyboardView extends View {
         if (shift && !capsLock) {
             shift = false;
             invalidate();
+            // The row capitalises against the shift key, so spending the
+            // one-shot has to reach it too.
+            announceState();
+        }
+    }
+
+    /** What a space bar swipe would commit, drawn on the bar mid-gesture. */
+    void setSwipeWord(String word) {
+        if (word == null ? swipeWord != null : !word.equals(swipeWord)) {
+            swipeWord = word;
+            if (spaceSwiped) {
+                invalidate();
+            }
         }
     }
 
@@ -958,6 +743,14 @@ final class GlassKeyboardView extends View {
             layoutKeys(getWidth(), getHeight());
         }
         invalidate();
+        announceState();
+    }
+
+    /** Tells the service the row may need re-capitalising. */
+    private void announceState() {
+        if (listener != null) {
+            listener.onKeyboardStateChanged();
+        }
     }
 
     private void emit(int code) {

@@ -349,10 +349,13 @@ TAB_LABELS = ["\U0001F600", "\U0001F43B", "\U0001F34E", "\u26BD",
 
 
 def draw_panel(bg, night):
-    """The emoji picker: a pane under every cell and every button, and one
-    category on screen rather than a single scroll through all of them."""
-    height = round(min(46 * DENSITY, SCREEN_H * 0.075) * sum(ROW_HEIGHTS["letters"])
-                   + 38 * DENSITY)
+    """The emoji picker, under the shared suggestion row.
+
+    The row is a sibling of the pages now, not a band inside the keyboard, so
+    the picker gets it too -- which is the whole point of moving it."""
+    strip_height = 38 * DENSITY
+    keys_height = min(46 * DENSITY, SCREEN_H * 0.075) * sum(ROW_HEIGHTS["letters"])
+    height = round(keys_height + strip_height)
     board = bg.crop((0, bg.height - height, W, bg.height)).convert("RGBA")
 
     tint = (0, 0, 0) if night else (255, 255, 255)
@@ -372,15 +375,16 @@ def draw_panel(bg, night):
     radius = pane * 0.28
 
     panes = Image.new("RGBA", (W, height), (0, 0, 0, 0))
+    top0 = strip_height
     hi = 3 * DENSITY
     header_pane = header_h - hi * 2
-    panes = blend(panes, glass_key((W, height), pad_h, hi, W - pad_h * 2,
+    panes = blend(panes, glass_key((W, height), pad_h, top0 + hi, W - pad_h * 2,
                                    header_pane, header_pane * 0.34,
                                    dim(top), dim(bottom), rim_top, rim_bottom,
                                    stroke, tint))
     for i in range(len(PANEL_EMOJI)):
         x = pad_h + (i % COLUMNS) * cell + inset
-        y = header_h + (i // COLUMNS) * cell + inset
+        y = top0 + header_h + (i // COLUMNS) * cell + inset
         if y + pane > height - bar_h:
             break
         panes = blend(panes, glass_key((W, height), x, y, pane, pane, radius,
@@ -417,11 +421,11 @@ def draw_panel(bg, night):
     tab_font = ImageFont.truetype(EMOJI_FONT, int(min(cell, tab_w) * 0.50))
     abc_font = ImageFont.truetype(TEXT_FONT, int(14 * DENSITY))
 
-    d.text((pad_h + 14 * DENSITY, header_h / 2), "Smileys", font=header_font,
+    d.text((pad_h + 14 * DENSITY, top0 + header_h / 2), "Smileys", font=header_font,
            anchor="lm", fill=ink + (255,))
     for i, glyph in enumerate(PANEL_EMOJI):
         x = pad_h + (i % COLUMNS) * cell
-        y = header_h + (i // COLUMNS) * cell
+        y = top0 + header_h + (i // COLUMNS) * cell
         if y + cell > height - bar_h:
             break
         d.text((x + cell / 2, y + cell / 2), glyph, font=emoji_font,
@@ -438,6 +442,11 @@ def draw_panel(bg, night):
             (bx + s * 0.95, cy - s * 0.64), (bx + s * 0.95, cy + s * 0.64),
             (bx - s * 0.38, cy + s * 0.64), (bx - s * 0.95, cy)],
            fill=ink + (255,), width=max(1, round(s * 0.16)), joint="curve")
+
+    tint = (0, 0, 0) if night else (255, 255, 255)
+    draw_strip(board, strip_height, pad_h, W - 2 * pad_h, ink,
+               SUGGEST_EMOJI, (W, height), tint, top, bottom,
+               rim_top, rim_bottom, stroke)
     return board
 
 

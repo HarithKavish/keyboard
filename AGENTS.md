@@ -241,6 +241,28 @@ Three things follow from that, and each is load-bearing:
 - That check runs *after* the known-word test, never before. Reversed, it turns
   the possessive "its" into "it's" and the past tense "were" into "we're".
 
+**The suggestion row is a sibling of the pages, not a band inside one.**
+`SuggestionStripView` sits above a container holding the keyboard and the emoji
+picker, and the service feeds it once. It used to live inside
+`GlassKeyboardView`, which caused both halves of the same bug: the picker is a
+sibling view, so it had no suggestions at all, and a page change returned inside
+the keyboard without the service ever hearing, so the symbol page showed whatever
+the letters page had left behind. The row belongs to the input, not to a page.
+
+Two things follow, and both are easy to break:
+
+- `GlassKeyboardView.preferredHeight()` is now the keys alone. The row adds its
+  own height on top. Anything that measures the keyboard has to account for both.
+- The row capitalises from two sources: the letters already typed, which arrive
+  with the suggestions, and the shift key, which lives in the keyboard. The
+  keyboard therefore calls `onKeyboardStateChanged()` whenever the page or the
+  shift state moves — including when a one-shot shift is spent. Miss one of those
+  call sites and the strip disagrees with the key that is lit.
+
+The space bar swipe goes through the service for the same reason: the best word
+is in the row, so the keyboard asks rather than reads. `setSwipeWord()` pushes it
+back for drawing on the bar mid-gesture.
+
 **One glass, one place: `Glass.java`.** The keys, the suggestion strip and every
 emoji cell and picker button draw the same panes, so the colour decisions and the
 drawing live there once. Each view still builds its own shaders, because a

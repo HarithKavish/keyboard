@@ -125,6 +125,9 @@ keyboard. On a light wallpaper the keys are made more solid, and the light
 treatment is chosen regardless of the system theme, because pale keys on a pale
 backdrop disappear no matter how opaque they are. That can be turned off.
 
+The row sits above the keyboard rather than inside it, so the letters, the
+symbols and the emoji picker all show the same suggestions, always current.
+
 ### The emoji picker
 
 One category at a time, chosen from the tabs along the bottom — not a single
