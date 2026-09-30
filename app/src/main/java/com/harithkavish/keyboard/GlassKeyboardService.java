@@ -2,6 +2,8 @@ package com.harithkavish.keyboard;
 
 import android.graphics.Color;
 import android.inputmethodservice.InputMethodService;
+import android.os.Handler;
+import android.os.Looper;
 import android.text.InputType;
 import android.view.View;
 import android.view.ViewGroup;
@@ -98,6 +100,7 @@ public final class GlassKeyboardService extends InputMethodService
     public void onStartInputView(EditorInfo info, boolean restarting) {
         super.onStartInputView(info, restarting);
         clearInheritedBackgrounds();
+        applyAppearance();
         showKeyboard();
         clearCorrectionState();
         if (keyboard != null) {
@@ -469,6 +472,41 @@ public final class GlassKeyboardService extends InputMethodService
     }
 
     // ----------------------------------------------------------------- plumbing
+
+    /**
+     * Pushes the opacity setting to the keyboard, and asks the wallpaper how
+     * light it is so pale keys can be made more solid over a pale backdrop.
+     *
+     * <p>Nothing here samples the app behind the keyboard, because nothing can:
+     * an input method has no access to the pixels of the window below it. The
+     * wallpaper is the only backdrop Android will describe, and it is the one
+     * actually visible wherever the app does not draw under the keyboard.
+     */
+    private void applyAppearance() {
+        if (keyboard == null) {
+            return;
+        }
+        final boolean adaptive = Appearance.isAdaptive(this);
+        final int opacity = Appearance.opacity(this);
+        Boolean known = adaptive ? Appearance.knownBackdrop() : null;
+        keyboard.setAppearance(
+                Appearance.scale(opacity, known != null && known), known);
+        if (!adaptive) {
+            return;
+        }
+        Appearance.probe(this, new Handler(Looper.getMainLooper()),
+                new Appearance.Listener() {
+                    @Override
+                    public void onBackdropResolved(boolean light) {
+                        if (keyboard != null && Appearance.isAdaptive(
+                                GlassKeyboardService.this)) {
+                            keyboard.setAppearance(
+                                    Appearance.scale(Appearance.opacity(
+                                            GlassKeyboardService.this), light), light);
+                        }
+                    }
+                });
+    }
 
     private void showEmojiPanel() {
         if (emojiPanel == null || keyboard == null) {

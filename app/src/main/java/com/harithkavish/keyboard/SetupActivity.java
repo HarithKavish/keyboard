@@ -16,6 +16,7 @@ import android.widget.CompoundButton;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
+import android.widget.SeekBar;
 import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -68,6 +69,17 @@ public final class SetupActivity extends Activity {
                 }
             }
         }));
+
+        column.addView(heading(getString(R.string.setup_look), dp(32)));
+        column.addView(body(getString(R.string.setup_look_detail), dp(2)));
+        column.addView(opacitySlider());
+        column.addView(toggle(R.string.setup_adapt, R.string.setup_adapt_detail,
+                Appearance.isAdaptive(this), new CompoundButton.OnCheckedChangeListener() {
+                    @Override
+                    public void onCheckedChanged(CompoundButton view, boolean checked) {
+                        Appearance.setAdaptive(SetupActivity.this, checked);
+                    }
+                }));
 
         column.addView(heading(getString(R.string.setup_typing), dp(32)));
         column.addView(body(getString(R.string.setup_typing_detail), dp(2)));
@@ -149,6 +161,52 @@ public final class SetupActivity extends Activity {
         if (resetButton != null) {
             resetButton.setEnabled(predictor.hasLearned());
         }
+    }
+
+    /**
+     * The opacity control. A slider rather than a few named steps, because the
+     * right value depends on the wallpaper and on eyesight, and neither is
+     * something this app can guess.
+     */
+    private LinearLayout opacitySlider() {
+        LinearLayout group = new LinearLayout(this);
+        group.setOrientation(LinearLayout.VERTICAL);
+        group.setLayoutParams(rowParams(dp(12)));
+
+        final TextView label = body(opacityLabel(Appearance.opacity(this)), 0);
+        label.setAlpha(1f);
+        group.addView(label);
+
+        SeekBar bar = new SeekBar(this);
+        bar.setMax(100);
+        bar.setProgress(Appearance.opacity(this));
+        bar.setLayoutParams(rowParams(dp(4)));
+        bar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override
+            public void onProgressChanged(SeekBar view, int value, boolean fromUser) {
+                label.setText(opacityLabel(value));
+                if (fromUser) {
+                    Appearance.setOpacity(SetupActivity.this, value);
+                }
+            }
+
+            @Override
+            public void onStartTrackingTouch(SeekBar view) {
+            }
+
+            @Override
+            public void onStopTrackingTouch(SeekBar view) {
+            }
+        });
+        group.addView(bar);
+        return group;
+    }
+
+    private String opacityLabel(int value) {
+        if (value == Appearance.DEFAULT_OPACITY) {
+            return getString(R.string.setup_opacity_default);
+        }
+        return getString(R.string.setup_opacity, value);
     }
 
     private LinearLayout toggle(int label, int detail, boolean checked,

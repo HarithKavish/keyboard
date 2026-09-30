@@ -160,6 +160,24 @@ capitals come back is not tracked anywhere: `readContext()` re-reads the field
 and sees the sentence restart, which is why a comma behaves differently from a
 full stop without a single flag saying so.
 
+**The keyboard cannot see what is behind it, and never will.** Android gives an
+input method no access to the pixels of the window below — a security boundary,
+not a gap — and the ways around it (MediaProjection, an accessibility service)
+want consent a keyboard has no business asking for. Do not accept a request to
+"sample the background"; it cannot be built. `Appearance` adapts to the
+*wallpaper* instead, via `getWallpaperColors`, which is the only backdrop the
+platform will describe and is what actually shows wherever the app does not draw
+under the keyboard. The rest is a slider.
+
+That read goes over IPC and can block, so it runs on its own thread and is
+cached for the process. The SDK_INT guard is repeated inside `readWallpaper()`
+on purpose: lint reads each method alone and cannot see a guard one frame up.
+
+`Appearance.isLight()` unpacks colour channels by hand rather than through
+`android.graphics.Color`, whose methods are unmocked stubs that throw under unit
+tests. That is what makes the luminance rule testable, and it is worth keeping
+that way.
+
 **Publishing needs the signing secrets.** `publish-store.yml` refuses to run
 without them, on purpose: Android identifies an app by its signature, so a build
 signed with a different key is a different app and cannot update an installed

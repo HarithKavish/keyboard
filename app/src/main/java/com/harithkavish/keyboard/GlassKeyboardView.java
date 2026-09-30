@@ -130,6 +130,10 @@ final class GlassKeyboardView extends View {
     private float stripWidth;
     private float letterRowHeight;
     private boolean night;
+    /** Multiplier on every key's alpha, from the opacity setting and the wallpaper. */
+    private float opacityScale = 1f;
+    /** TRUE or FALSE once the wallpaper has been read; null means follow the system. */
+    private Boolean backdropLight;
 
     // Rebuilt only when the key height or the theme changes, so onDraw allocates
     // nothing at all.
@@ -250,7 +254,11 @@ final class GlassKeyboardView extends View {
 
     private void readTheme() {
         int mode = getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
-        night = mode == Configuration.UI_MODE_NIGHT_YES;
+        // A known backdrop beats the system theme. Dark keys on a dark wallpaper
+        // are invisible no matter how opaque they are, so which treatment to use
+        // matters more than how solid it is.
+        night = backdropLight != null ? !backdropLight
+                : mode == Configuration.UI_MODE_NIGHT_YES;
         // Over a dark app the glass is a faint white tint with white glyphs; over
         // a light one it is a brighter white pane with near-black glyphs. Either
         // way the glyph carries a shadow in the opposite tone, because what sits
@@ -385,6 +393,8 @@ final class GlassKeyboardView extends View {
             top = 0x96FFFFFF;
             bottom = 0x63FFFFFF;
         }
+        top = Appearance.scaleAlpha(top, opacityScale);
+        bottom = Appearance.scaleAlpha(bottom, opacityScale);
         // A shallow range on purpose. A steep top-to-bottom gradient is read as a
         // moulded surface catching a light; a flatter one is read as frosted.
         float keyHeight = letterRowHeight - gap;
@@ -395,8 +405,9 @@ final class GlassKeyboardView extends View {
         // Bright along the top edge and faint but still present by the bottom.
         // Letting it vanish entirely loses the pane's shape against a busy
         // wallpaper; the shadow underneath does the rest of the separating.
-        rimShader = vertical(keyHeight, night ? 0x99FFFFFF : 0xB3FFFFFF,
-                night ? 0x26FFFFFF : 0x2BFFFFFF);
+        rimShader = vertical(keyHeight,
+                Appearance.scaleAlpha(night ? 0x99FFFFFF : 0xB3FFFFFF, opacityScale),
+                Appearance.scaleAlpha(night ? 0x26FFFFFF : 0x2BFFFFFF, opacityScale));
         // A hairline. Anything thicker outlines the key instead of lighting it.
         rim.setStrokeWidth(Math.max(1f, density * 0.75f));
         chip.setColor(night ? 0x1FFFFFFF : 0x4DFFFFFF);
@@ -521,6 +532,29 @@ final class GlassKeyboardView extends View {
      */
     private String shape(String word) {
         return Casing.apply(word, Casing.stronger(caseMode(), caseHint));
+    }
+
+    /**
+     * Sets how solid the keys are drawn, and whether to treat the backdrop as
+     * light regardless of the system theme.
+     *
+     * <p>{@code light} is null when nothing is known about what is behind, which
+     * is the case below API 27 and whenever the person has turned adaptation
+     * off. The system's own dark mode is the fallback.
+     */
+    void setAppearance(float scale, Boolean light) {
+        if (scale == opacityScale && equal(light, backdropLight)) {
+            return;
+        }
+        opacityScale = scale;
+        backdropLight = light;
+        readTheme();
+        buildShaders();
+        invalidate();
+    }
+
+    private static boolean equal(Boolean a, Boolean b) {
+        return a == null ? b == null : a.equals(b);
     }
 
     /** What the shift key alone is asking for. */

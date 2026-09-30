@@ -11,6 +11,13 @@
     <string name="setup_enable">Open input method settings</string>
     <string name="setup_switch">Choose Glass Keyboard</string>
 
+    <string name="setup_look">Look</string>
+    <string name="setup_look_detail">How solid the keys are drawn over whatever is behind them.</string>
+    <string name="setup_opacity">Key opacity · %1$d</string>
+    <string name="setup_opacity_default">Key opacity · default</string>
+    <string name="setup_adapt">Adapt to your wallpaper</string>
+    <string name="setup_adapt_detail">Make the keys more solid over a light wallpaper. The keyboard cannot see the app behind it — Android does not allow that — so this follows your wallpaper, which is what shows through wherever the app does not draw under the keyboard.</string>
+
     <string name="setup_typing">Typing</string>
     <string name="setup_typing_detail">What the keyboard picks up as you use it. Everything learnt stays on this phone.</string>
     <string name="setup_learn_words">Learn words</string>

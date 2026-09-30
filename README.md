@@ -84,6 +84,18 @@ way CLDR annotates them: "smile", "smiley" and "grin" all reach the same face,
 and "tick", "tickmark" and "check" all reach the same tick. Half a word is
 enough — "smi" already finds it.
 
+### How solid the keys are
+
+A slider in the app sets it, with the middle leaving the design as drawn.
+
+The keyboard **cannot see the app behind it** — Android gives an input method no
+way to read the pixels of the window below, and the ways around that need
+permissions a keyboard should never ask for. What it can read is your wallpaper,
+which is what actually shows through wherever the app does not draw under the
+keyboard. On a light wallpaper the keys are made more solid, and the light
+treatment is chosen regardless of the system theme, because pale keys on a pale
+backdrop disappear no matter how opaque they are. That can be turned off.
+
 ### What it learns, and turning it off
 
 Words, emoji habits and corrections are learnt on the device and go nowhere else.
