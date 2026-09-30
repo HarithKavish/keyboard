@@ -25,11 +25,16 @@ import java.util.Locale;
  * per key on every rotation and an allocation per key at startup, for drawing
  * that is a handful of rounded rectangles either way.
  *
- * <p>The glass look is three cheap draws rather than a real blur: a vertical
- * gradient body, a rim light that fades from the top edge down, and a highlight
- * band across the upper half. Android cannot blur what is behind another window
- * before API 31, and where it can, the blur covers the whole window rectangle,
- * which would defeat the transparent background this keyboard is built around.
+ * <p>The glass look is a few cheap draws rather than a real blur: a stacked
+ * shadow for lift, a shallow vertical gradient for the pane, and a rim light
+ * that is brightest along the top edge. There is deliberately no gloss band across
+ * the upper half -- a bright highlight over the top half of a rounded rect is
+ * the signature of moulded plastic, and it is what made an earlier version of
+ * this read as a toy. What sells glass instead is restraint: low contrast, a
+ * hairline rim, and whatever is behind showing through.
+ *
+ * <p>Android cannot blur what is behind another window before API 31, and where
+ * it can, the blur covers the whole window rectangle rather than each key.
  */
 final class GlassKeyboardView extends View {
 
@@ -45,9 +50,19 @@ final class GlassKeyboardView extends View {
     private static final long REPEAT_NEXT_MS = 50;
     private static final long DOUBLE_TAP_MS = 350;
 
+    /**
+     * A soft shadow stacked by hand, largest offset first. Hardware-accelerated
+     * canvases will not blur an arbitrary shape cheaply -- BlurMaskFilter forces
+     * a software layer -- so the falloff is three offset rounded rects instead.
+     * Without it the panes sit flat against the wallpaper and stop reading as
+     * glass at all.
+     */
+    private static final int[] SHADOW_OFFSET_DP = {3, 2, 1};
+    private static final int[] SHADOW_ALPHA = {0x16, 0x12, 0x0E};
+
     private final Paint fill = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint shadow = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint rim = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final Paint sheen = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint text = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint icon = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Path iconPath = new Path();
@@ -128,8 +143,11 @@ final class GlassKeyboardView extends View {
         // behind a transparent keyboard is whatever the app draws and it is not
         // guaranteed to agree with the system theme.
         text.setColor(night ? 0xFFFFFFFF : 0xFF14161C);
-        text.setShadowLayer(density * 1.5f, 0f, density * 0.5f,
-                night ? 0x66000000 : 0x40FFFFFF);
+        // Tight and faint: enough to hold a glyph against an unknown backdrop,
+        // not enough to emboss it. A soft wide shadow under letters is the other
+        // half of the toy look.
+        text.setShadowLayer(density, 0f, density * 0.5f,
+                night ? 0x4D000000 : 0x33FFFFFF);
         icon.setColor(text.getColor());
         bodyShader = null;
     }
@@ -145,10 +163,12 @@ final class GlassKeyboardView extends View {
     protected void onMeasure(int widthSpec, int heightSpec) {
         int width = MeasureSpec.getSize(widthSpec);
         int screenHeight = getResources().getDisplayMetrics().heightPixels;
-        // 52dp rows on a phone held upright, capped so landscape does not hand
-        // the keyboard most of the screen.
-        float row = Math.min(52f * density, screenHeight * 0.11f);
-        setMeasuredDimension(width, Math.round(row * ROWS + 12f * density));
+        // 46dp rows on a phone held upright, capped so landscape does not hand
+        // the keyboard most of the screen. The trailing 14dp is the vertical
+        // padding layoutKeys() takes straight back off, so a row ends up being
+        // exactly `row` tall rather than slightly under it.
+        float row = Math.min(46f * density, screenHeight * 0.10f);
+        setMeasuredDimension(width, Math.round(row * ROWS + 14f * density));
     }
 
     @Override
@@ -158,10 +178,16 @@ final class GlassKeyboardView extends View {
     }
 
     private void layoutKeys(int width, int height) {
-        float padH = 4f * density;
-        float padV = 6f * density;
-        gap = 4f * density;
-        keyRadius = 11f * density;
+        // The side margin is deliberately wide: it pulls the outer keys off the
+        // screen edges, which is where a thumb tends to clip them, and it lets
+        // whatever is behind the keyboard run past the keys on both sides.
+        float padH = 14f * density;
+        float padV = 7f * density;
+        // The wider gap is what makes the keys read as smaller: the pane shrinks
+        // while the row pitch stays where the thumb already expects it, and
+        // keyAt() snaps to the nearest key, so the extra space is not dead.
+        gap = 6f * density;
+        keyRadius = 10f * density;
 
         float available = width - 2f * padH;
         float rowHeight = (height - 2f * padV) / rows.length;
@@ -210,19 +236,24 @@ final class GlassKeyboardView extends View {
         int top;
         int bottom;
         if (night) {
-            top = 0x40FFFFFF;
-            bottom = 0x14FFFFFF;
+            top = 0x3DFFFFFF;
+            bottom = 0x21FFFFFF;
         } else {
-            top = 0x99FFFFFF;
-            bottom = 0x4DFFFFFF;
+            top = 0x96FFFFFF;
+            bottom = 0x63FFFFFF;
         }
+        // A shallow range on purpose. A steep top-to-bottom gradient is read as a
+        // moulded surface catching a light; a flatter one is read as frosted.
         bodyShader = vertical(top, bottom);
         bodyShaderPressed = vertical(brighten(top), brighten(bottom));
         // Command keys sit back a step so the letters read as the primary rows.
         bodyShaderCommand = vertical(dim(top), dim(bottom));
-        rimShader = vertical(night ? 0x8CFFFFFF : 0x66FFFFFF, night ? 0x1AFFFFFF : 0x14000000);
-        rim.setStrokeWidth(Math.max(1f, density));
-        sheen.setColor(night ? 0x14FFFFFF : 0x30FFFFFF);
+        // Bright along the top edge and faint but still present by the bottom.
+        // Letting it vanish entirely loses the pane's shape against a busy
+        // wallpaper; the shadow underneath does the rest of the separating.
+        rimShader = vertical(night ? 0x99FFFFFF : 0xB3FFFFFF, night ? 0x26FFFFFF : 0x2BFFFFFF);
+        // A hairline. Anything thicker outlines the key instead of lighting it.
+        rim.setStrokeWidth(Math.max(1f, density * 0.75f));
     }
 
     private Shader vertical(int top, int bottom) {
@@ -248,8 +279,8 @@ final class GlassKeyboardView extends View {
             }
         }
 
-        float letterSize = keyHeight * 0.42f;
-        float labelSize = keyHeight * 0.30f;
+        float letterSize = keyHeight * 0.40f;
+        float labelSize = keyHeight * 0.29f;
 
         for (Keys.Key[] row : rows) {
             for (Keys.Key key : row) {
@@ -267,12 +298,15 @@ final class GlassKeyboardView extends View {
                 } else {
                     body = bodyShader;
                 }
+                for (int i = 0; i < SHADOW_OFFSET_DP.length; i++) {
+                    float off = SHADOW_OFFSET_DP[i] * density;
+                    shadow.setColor(SHADOW_ALPHA[i] << 24);
+                    canvas.drawRoundRect(off * 0.4f, off, key.w - off * 0.4f, key.h + off,
+                            keyRadius, keyRadius, shadow);
+                }
+
                 fill.setShader(body);
                 canvas.drawRoundRect(0f, 0f, key.w, key.h, keyRadius, keyRadius, fill);
-
-                // The highlight band across the top is the part that reads as glass.
-                canvas.drawRoundRect(density, density, key.w - density, key.h * 0.5f,
-                        keyRadius * 0.8f, keyRadius * 0.8f, sheen);
 
                 rim.setShader(rimShader);
                 float half = rim.getStrokeWidth() / 2f;

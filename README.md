@@ -27,11 +27,19 @@ Installable from the store at <https://store.harithkavish.com>.
 ## How it looks
 
 The keyboard window is fully transparent, and each key is a rounded rectangle
-with a vertical gradient body, a rim light that fades from the top edge, and a
-highlight band across the upper half. There is no blur: Android cannot blur what
-is behind another window before API 31, and where it can, the blur covers the
-whole window rectangle — which would replace the transparent background with an
-opaque frosted panel and defeat the point.
+built from three cheap draws: a stacked shadow for lift, a shallow vertical
+gradient for the pane, and a hairline rim light brightest along the top edge.
+
+There is deliberately **no gloss band** across the upper half. A bright highlight
+over the top half of a rounded rect is the signature of moulded plastic, and it
+is what made the first version read as a toy rather than as glass. What sells
+glass is restraint — low contrast, a hairline rim, a little depth, and whatever
+is behind showing through.
+
+There is no blur either: Android cannot blur what is behind another window before
+API 31, and where it can, the blur covers the whole window rectangle rather than
+each key — which would replace the transparent background with an opaque frosted
+panel and defeat the point.
 
 Getting the window transparent takes more than writing a transparent theme.
 **`android:theme` on a `<service>` element does nothing for an input method.**
