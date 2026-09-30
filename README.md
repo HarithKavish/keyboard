@@ -5,7 +5,8 @@ own. The app behind it shows straight through the gaps, and the keys read as
 panes of glass laid over it.
 
 It is deliberately small. No libraries, no AndroidX, no Kotlin — the release APK
-is around **73 KB**, roughly a thousandth of what a mainstream keyboard installs.
+is around **157 KB**, of which 73 KB is the word list. Still roughly a thousandth
+of what a mainstream keyboard installs.
 
 ## What it does
 
@@ -46,7 +47,9 @@ the centre**, second on the left and third on the right, because the centre is
 where a thumb resting under the space bar already is.
 
 The words come from what is being typed (completions) or from the word before it
-(what usually follows). The typed word itself always stays reachable, so a word
+(what usually follows), drawn from a 20,000 word list in frequency order — so
+"art" keeps going into "article", "artist" and, once you add a letter or two,
+"artificial". The typed word itself always stays reachable, so a word
 the keyboard has never seen can still be kept. With no emoji to offer, the words
 spread across the whole strip instead of leaving a third of it empty.
 

@@ -4,6 +4,7 @@ import android.content.Context;
 import android.content.SharedPreferences;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -61,6 +62,20 @@ final class Predictor {
     private static final int MAX_EMOJI_KEYS = 800;
     private static final int SAVE_EVERY = 12;
 
+    /**
+     * How many completions to take from the big list before stopping. It is in
+     * frequency order, so the first matches are the best ones and walking to the
+     * end of twenty thousand words on every keystroke buys nothing.
+     */
+    private static final int CANDIDATE_LIMIT = 12;
+
+    /**
+     * How far into the big list autocorrect will reach for a replacement.
+     * Correcting a typo into a word nobody uses is worse than not correcting it,
+     * and it also bounds the edit-distance work done at every word boundary.
+     */
+    private static final int AUTOCORRECT_REACH = 8000;
+
     /** Shorter than this and a keyword prefix match is too loose to be useful. */
     private static final int MIN_PREFIX = 2;
     /** Shorter than this and a keyword inside a longer word means nothing. */
@@ -89,6 +104,38 @@ final class Predictor {
         "i", "I", "i'm", "I'm", "i've", "I've", "i'll", "I'll",
         "i'd", "I'd", "i'am", "I am",
     };
+
+    /**
+     * The big word list, published in one go.
+     *
+     * <p>It is loaded off the main thread while the keyboard is already usable,
+     * so it arrives as a whole new object assigned to a volatile field rather
+     * than being filled in place. Half a dictionary is not a state anything here
+     * should have to reason about.
+     *
+     * <p>Held twice: once in frequency order for prediction, once sorted for
+     * membership. A HashSet of twenty thousand strings costs about a megabyte
+     * more than an array of the same references, and binary search is fast
+     * enough for the one question asked of it.
+     */
+    private static final class Vocab {
+        static final Vocab EMPTY = new Vocab(new ArrayList<String>());
+
+        final List<String> byFrequency;
+        final String[] sorted;
+
+        Vocab(List<String> words) {
+            byFrequency = words;
+            sorted = words.toArray(new String[0]);
+            Arrays.sort(sorted);
+        }
+
+        boolean contains(String word) {
+            return Arrays.binarySearch(sorted, word) >= 0;
+        }
+    }
+
+    private volatile Vocab extra = Vocab.EMPTY;
 
     private static Predictor instance;
 
@@ -224,6 +271,31 @@ final class Predictor {
         }
     }
 
+    /**
+     * Adds the bulk word list. Safe to call from a background thread: it builds
+     * the whole thing before publishing it, and everything that reads it takes a
+     * single reference first.
+     */
+    void addVocabulary(List<String> words) {
+        if (words == null || words.isEmpty()) {
+            return;
+        }
+        List<String> kept = new ArrayList<>(words.size());
+        for (String word : words) {
+            // The curated seeds already rank these far higher; a duplicate would
+            // only be dead weight in the scan.
+            if (!seed.containsKey(word)) {
+                kept.add(word);
+            }
+        }
+        extra = new Vocab(kept);
+    }
+
+    /** True once the big list has arrived. */
+    boolean hasFullVocabulary() {
+        return !extra.byFrequency.isEmpty();
+    }
+
     private void seedBigrams() {
         for (String pair : Vocabulary.BIGRAMS) {
             int space = pair.indexOf(' ');
@@ -311,6 +383,17 @@ final class Predictor {
             for (String word : unigram.keySet()) {
                 if (word.startsWith(lower) && !seed.containsKey(word)) {
                     pool.add(word);
+                }
+            }
+            // The big list, in frequency order, stopping once there are enough
+            // candidates to choose between.
+            Vocab words = extra;
+            int found = 0;
+            for (int i = 0; i < words.byFrequency.size() && found < CANDIDATE_LIMIT; i++) {
+                String word = words.byFrequency.get(i);
+                if (word.startsWith(lower) && !unigram.containsKey(word)) {
+                    pool.add(word);
+                    found++;
                 }
             }
             sortByScore(pool);
@@ -513,17 +596,39 @@ final class Predictor {
         if (settled != null) {
             return settled.equals(lower) ? null : reshape(typed, settled);
         }
-        if (seed.containsKey(lower) || unigram.containsKey(lower)) {
+        Vocab words = extra;
+        if (seed.containsKey(lower) || unigram.containsKey(lower) || words.contains(lower)) {
+            // A real word, even an uncommon one. This is the check that stops a
+            // twenty thousand word vocabulary from "fixing" half of it.
             return null;
         }
 
         int allowed = lower.length() <= 4 ? 1 : 2;
-        String best = null;
-        int bestScore = 0;
-        int bestDistance = Integer.MAX_VALUE;
-        for (String candidate : allWords()) {
-            int gap = Math.abs(candidate.length() - lower.length());
-            if (gap > allowed) {
+        Candidate best = new Candidate();
+        consider(seed.keySet(), lower, allowed, best);
+        consider(unigram.keySet(), lower, allowed, best);
+        consider(words.byFrequency.subList(
+                0, Math.min(AUTOCORRECT_REACH, words.byFrequency.size())),
+                lower, allowed, best);
+        return best.word == null ? null : reshape(typed, best.word);
+    }
+
+    /** The running best replacement while the candidates are scanned. */
+    private static final class Candidate {
+        String word;
+        int score;
+        int distance = Integer.MAX_VALUE;
+    }
+
+    /**
+     * Walks a collection of candidates, keeping the closest and, among equals,
+     * the commonest. Iterated rather than gathered into a set: at this size,
+     * building one per word boundary costs more than the scan does.
+     */
+    private void consider(Iterable<String> candidates, String lower, int allowed,
+                          Candidate best) {
+        for (String candidate : candidates) {
+            if (Math.abs(candidate.length() - lower.length()) > allowed) {
                 continue;
             }
             if (blocked.contains(lower + ">" + candidate)) {
@@ -534,13 +639,13 @@ final class Predictor {
                 continue;
             }
             int score = score(candidate);
-            if (distance < bestDistance || (distance == bestDistance && score > bestScore)) {
-                bestDistance = distance;
-                bestScore = score;
-                best = candidate;
+            if (distance < best.distance
+                    || (distance == best.distance && score > best.score)) {
+                best.distance = distance;
+                best.score = score;
+                best.word = candidate;
             }
         }
-        return best == null ? null : reshape(typed, best);
     }
 
     /**
@@ -706,12 +811,6 @@ final class Predictor {
                 return byLength != 0 ? byLength : a.compareTo(b);
             }
         });
-    }
-
-    private Set<String> allWords() {
-        Set<String> all = new HashSet<>(seed.keySet());
-        all.addAll(unigram.keySet());
-        return all;
     }
 
     /**

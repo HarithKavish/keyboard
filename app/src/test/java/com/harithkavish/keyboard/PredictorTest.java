@@ -8,6 +8,8 @@ import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -211,6 +213,95 @@ public class PredictorTest {
     }
 
 
+
+
+    // ------------------------------------------------------ the bulk word list
+
+    /** Stands in for res/raw/words.txt, in the same frequency order. */
+    private static List<String> bulk() {
+        return Arrays.asList("art", "article", "articles", "artist", "artists",
+                "artificial", "artwork", "arthritis", "keyboard", "keyboards",
+                "programme", "programming", "wonderful", "wondering");
+    }
+
+    @Test
+    public void keepsPredictingPastTheSeedList() {
+        // The reported gap: typing "art" offered nothing but "art", because the
+        // 345 hand-written seeds had no longer word beginning that way.
+        predictor.addVocabulary(bulk());
+        List<String> words = predictor.predictWords(null, "art");
+        assertTrue("expected completions, got " + words, words.size() >= 2);
+        assertTrue(words.contains("article") || words.contains("artist"));
+    }
+
+    @Test
+    public void narrowsAsMoreIsTyped() {
+        predictor.addVocabulary(bulk());
+        assertTrue(predictor.predictWords(null, "artif").contains("artificial"));
+        assertTrue(predictor.predictWords(null, "keyb").contains("keyboard"));
+    }
+
+    @Test
+    public void offersTheCommonestCompletionFirst() {
+        // The list is in frequency order, and that order has to survive.
+        predictor.addVocabulary(bulk());
+        assertEquals("article", predictor.predictWords(null, "articl").get(0));
+    }
+
+    @Test
+    public void stillOffersOnlyThree() {
+        predictor.addVocabulary(bulk());
+        assertTrue(predictor.predictWords(null, "art").size() <= 3);
+    }
+
+    @Test
+    public void aTypedWordStillBeatsTheBulkList() {
+        predictor.addVocabulary(bulk());
+        for (int i = 0; i < 4; i++) {
+            predictor.learnWord("the", "artwork");
+        }
+        assertEquals("artwork", predictor.predictWords(null, "art").get(0));
+    }
+
+    @Test
+    public void doesNotCorrectAWordFromTheBulkList() {
+        // Before the big list arrived, "arthritis" was unknown and autocorrect
+        // would happily turn it into something else.
+        predictor.addVocabulary(bulk());
+        assertNull(predictor.correct("arthritis"));
+        assertNull(predictor.correct("artwork"));
+    }
+
+    @Test
+    public void correctsATypoIntoTheBulkList() {
+        predictor.addVocabulary(bulk());
+        assertEquals("keyboard", predictor.correct("keybaord"));
+    }
+
+    @Test
+    public void survivesAnEmptyOrMissingWordList() {
+        // The dictionary is read from a resource at runtime; a keyboard that
+        // could not read it must still be a keyboard.
+        predictor.addVocabulary(null);
+        predictor.addVocabulary(new ArrayList<String>());
+        assertFalse(predictor.hasFullVocabulary());
+        assertFalse(predictor.predictWords(null, "th").isEmpty());
+    }
+
+    @Test
+    public void reportsWhetherTheBulkListArrived() {
+        assertFalse(predictor.hasFullVocabulary());
+        predictor.addVocabulary(bulk());
+        assertTrue(predictor.hasFullVocabulary());
+    }
+
+    @Test
+    public void doesNotDuplicateWordsTheSeedListAlreadyHas() {
+        predictor.addVocabulary(Arrays.asList("the", "and", "artificial"));
+        List<String> words = predictor.predictWords(null, "th");
+        assertEquals("no duplicate suggestions", words.size(),
+                new java.util.HashSet<>(words).size());
+    }
 
     // -------------------------------------------------------- always capital
 

@@ -25,7 +25,8 @@ disagree with it, governance wins.
 
 Glass Keyboard is an Android input method: a QWERTY keyboard with translucent
 keys drawn over a fully transparent window, so the app behind shows through. It
-has no dependencies at all, and the release APK is about 73 KB.
+has no dependencies at all, and the release APK is about 157 KB, of which the
+word list is 73 KB.
 
 Beyond the keys it carries a suggestion strip (three words, best in the centre,
 plus two emoji or a punctuation mark), autocorrect that learns from being
@@ -195,6 +196,31 @@ will not blur per-key.
 share one name, which meant the service could not tell them apart and both
 behaved the same. Do not merge them again: they are different gestures with
 different answers.
+
+**The word list is the one large thing in here, and it was a decision.**
+`res/raw/words.txt` is 20,000 words in frequency order, 73 KB compressed, and it
+roughly doubled the APK. It earns that: the 345 hand-written seeds in
+`Vocabulary` could not complete "art" into anything, and a keyboard whose
+prediction stops at three letters has prediction in name only. It also stops
+autocorrect mangling real-but-uncommon words, which was the quieter problem.
+
+Rebuild it with `tools/gen_wordlist.py`. Trimming to 10,000 words would save
+about 35 KB and still cover ordinary prediction; the second ten thousand is
+mostly there so autocorrect knows those words exist.
+
+Three things keep it cheap at runtime, and all three matter:
+
+- It loads on a background thread, once per process, and is published by
+  assigning one `Vocab` to a volatile field. Half a dictionary is not a state
+  anything should reason about.
+- Prefix search walks it in frequency order and stops after `CANDIDATE_LIMIT`
+  hits, because the first matches are the best ones.
+- Membership is a sorted array and a binary search, not a HashSet, which saves
+  roughly a megabyte of heap for the one question ever asked of it.
+
+Autocorrect reaches only `AUTOCORRECT_REACH` deep. Correcting a typo into a word
+nobody uses is worse than not correcting it, and it bounds the edit-distance
+work done at every word boundary.
 
 **Publishing needs the signing secrets.** `publish-store.yml` refuses to run
 without them, on purpose: Android identifies an app by its signature, so a build

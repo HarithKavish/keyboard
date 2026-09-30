@@ -1,5 +1,6 @@
 package com.harithkavish.keyboard;
 
+import android.content.res.Resources;
 import android.graphics.Color;
 import android.inputmethodservice.InputMethodService;
 import android.os.Handler;
@@ -11,6 +12,10 @@ import android.view.ViewParent;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
 import android.widget.FrameLayout;
+
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -76,6 +81,59 @@ public final class GlassKeyboardService extends InputMethodService
     public void onCreate() {
         super.onCreate();
         predictor = Predictor.get(this);
+        loadVocabulary();
+    }
+
+    /**
+     * Reads the bulk word list in the background.
+     *
+     * <p>Twenty thousand words is too much to parse while the keyboard is being
+     * put on screen, and it is not needed for the first keystroke: the curated
+     * seed list is already in memory, so prediction works from the moment the
+     * keyboard opens and simply gets better a few hundred milliseconds later.
+     */
+    private void loadVocabulary() {
+        if (predictor.hasFullVocabulary()) {
+            return;
+        }
+        final Resources resources = getResources();
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                List<String> words = readWordList(resources);
+                if (!words.isEmpty()) {
+                    predictor.addVocabulary(words);
+                }
+            }
+        }, "glass-vocabulary").start();
+    }
+
+    private static List<String> readWordList(Resources resources) {
+        List<String> words = new ArrayList<>(20000);
+        BufferedReader reader = null;
+        try {
+            reader = new BufferedReader(
+                    new InputStreamReader(resources.openRawResource(R.raw.words), "UTF-8"));
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (!line.isEmpty()) {
+                    words.add(line);
+                }
+            }
+        } catch (IOException | RuntimeException e) {
+            // A keyboard that cannot read its dictionary is still a keyboard.
+            // The seed list keeps prediction working.
+            words.clear();
+        } finally {
+            if (reader != null) {
+                try {
+                    reader.close();
+                } catch (IOException ignored) {
+                    // Nothing useful to do about a failed close here.
+                }
+            }
+        }
+        return words;
     }
 
     @Override
