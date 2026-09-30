@@ -10,6 +10,7 @@ import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
 import android.widget.FrameLayout;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
@@ -17,15 +18,24 @@ import java.util.List;
  * The input method itself. It owns the keyboard and the emoji picker, and
  * forwards what they report to whatever field currently has focus.
  *
- * <p>It also holds the only state that cannot live in either view: what word the
- * cursor is sitting in, and whether the last thing typed was an autocorrection
- * that the person might be about to reject.
+ * <p>It also holds the state that cannot live in either view: what word the
+ * cursor is sitting in, how far into a sentence it is, and whether the last
+ * thing typed was an autocorrection the person might be about to reject.
  */
 public final class GlassKeyboardService extends InputMethodService
         implements GlassKeyboardView.Listener, EmojiPanelView.Listener {
 
-    /** Enough to find the word under the cursor and the one before it. */
-    private static final int CONTEXT_CHARS = 64;
+    /**
+     * Enough to find the sentence the cursor is in. Longer than it needs to be
+     * for the current word alone, because automatic capitalisation and the
+     * punctuation suggestion both depend on where the sentence started.
+     */
+    private static final int CONTEXT_CHARS = 96;
+
+    /** Marks that end a sentence, after which the next letter is capitalised. */
+    private static final String SENTENCE_ENDS = ".!?";
+    /** Marks that take a space after them when they follow a word. */
+    private static final String SPACED_MARKS = ".!?,;:";
 
     private FrameLayout root;
     private GlassKeyboardView keyboard;
@@ -72,10 +82,12 @@ public final class GlassKeyboardService extends InputMethodService
         emojiPanel.setVisibility(View.GONE);
 
         root = new FrameLayout(this);
+        // Both wrap: each view measures itself to the keyboard's height, so the
+        // picker never grows to fill the screen behind it.
         root.addView(keyboard, new FrameLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         root.addView(emojiPanel, new FrameLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         return root;
     }
 
@@ -177,11 +189,15 @@ public final class GlassKeyboardService extends InputMethodService
     /**
      * Closes off the word before the cursor: corrects it if it should be
      * corrected, learns it, then commits whatever ended it.
+     *
+     * <p>A mark that ends a sentence also takes a space after it, so the next
+     * sentence starts where it should without the person reaching for the space
+     * bar. {@link #refreshSuggestions} then turns shift back on.
      */
     private void finishWord(InputConnection input, String separator) {
-        String[] context = readContext(input);
-        String previous = context[0];
-        String typed = context[1];
+        TextContext context = readContext(input);
+        String previous = context.previous;
+        String typed = context.current;
 
         if (!typed.isEmpty()) {
             if (awaitingReplacement != null && !awaitingReplacement.equalsIgnoreCase(typed)) {
@@ -197,13 +213,20 @@ public final class GlassKeyboardService extends InputMethodService
                 correctionTyped = typed;
                 correctionResult = corrected;
             } else {
-                correctionTyped = null;
-                correctionResult = null;
+                clearPendingCorrection();
             }
             predictor.learnWord(previous, corrected != null ? corrected : typed);
+            previous = corrected != null ? corrected : typed;
         }
-        if (separator != null) {
-            input.commitText(separator, 1);
+        if (separator == null) {
+            return;
+        }
+        boolean spaced = separator.length() == 1
+                && SPACED_MARKS.indexOf(separator.charAt(0)) >= 0
+                && !typed.isEmpty();
+        input.commitText(spaced ? separator + " " : separator, 1);
+        if (spaced) {
+            predictor.learnPunctuation(previous, separator);
         }
     }
 
@@ -221,14 +244,15 @@ public final class GlassKeyboardService extends InputMethodService
             String corrected = correctionResult;
             clearPendingCorrection();
 
-            CharSequence before = input.getTextBeforeCursor(corrected.length() + 1, 0);
+            CharSequence before = input.getTextBeforeCursor(corrected.length() + 2, 0);
             String tail = before == null ? "" : before.toString();
+            int trailing = trailingSeparators(tail);
+            int start = tail.length() - corrected.length() - trailing;
             // Only undo if the correction really is what sits behind the cursor;
             // anything else means the text moved and this is an ordinary delete.
-            if (tail.length() >= corrected.length()
-                    && tail.regionMatches(true, tail.length() - corrected.length() - trailing(tail),
-                            corrected, 0, corrected.length())) {
-                input.deleteSurroundingText(corrected.length() + trailing(tail), 0);
+            if (start >= 0
+                    && tail.regionMatches(true, start, corrected, 0, corrected.length())) {
+                input.deleteSurroundingText(corrected.length() + trailing, 0);
                 input.commitText(typed, 1);
                 predictor.rejectCorrection(typed, corrected);
                 awaitingReplacement = typed;
@@ -241,14 +265,22 @@ public final class GlassKeyboardService extends InputMethodService
             // With a selection, backspace clears the selection rather than
             // eating a character beyond it.
             input.commitText("", 1);
-        } else {
-            input.deleteSurroundingText(1, 0);
+            return;
         }
+        CharSequence before = input.getTextBeforeCursor(32, 0);
+        int span = before == null ? 1 : Math.max(1, Graphemes.lastClusterLength(before));
+        input.deleteSurroundingText(span, 0);
     }
 
-    /** 1 when the text ends in the separator committed after a correction. */
-    private static int trailing(String tail) {
-        return !tail.isEmpty() && !isWordCharacter(tail.charAt(tail.length() - 1)) ? 1 : 0;
+    /** How many separator characters the correction's own commit left behind. */
+    private static int trailingSeparators(String tail) {
+        int count = 0;
+        int i = tail.length();
+        while (i > 0 && !isWordCharacter(tail.charAt(i - 1)) && count < 2) {
+            count++;
+            i--;
+        }
+        return count;
     }
 
     private void enter(InputConnection input) {
@@ -278,16 +310,32 @@ public final class GlassKeyboardService extends InputMethodService
         if (input == null) {
             return;
         }
-        String[] context = readContext(input);
+        TextContext context = readContext(input);
         clearCorrectionState();
-        if (!context[1].isEmpty()) {
-            input.deleteSurroundingText(context[1].length(), 0);
+        if (!Predictor.isWordLike(word)) {
+            commitPunctuation(input, context, word);
+            refreshSuggestions();
+            return;
         }
-        String shaped = keyboard != null && keyboard.isShifted()
-                ? Character.toUpperCase(word.charAt(0)) + word.substring(1) : word;
-        input.commitText(shaped + " ", 1);
-        predictor.learnWord(context[0], word);
+        if (!context.current.isEmpty()) {
+            input.deleteSurroundingText(context.current.length(), 0);
+        }
+        input.commitText(word + " ", 1);
+        predictor.learnWord(context.previous, word);
         refreshSuggestions();
+    }
+
+    /**
+     * Puts a mark where the word before it ends, not after the space that
+     * follows it — "hello ." is not what anyone meant by tapping a full stop.
+     */
+    private void commitPunctuation(InputConnection input, TextContext context, String mark) {
+        CharSequence before = input.getTextBeforeCursor(1, 0);
+        if (before != null && before.length() == 1 && before.charAt(0) == ' ') {
+            input.deleteSurroundingText(1, 0);
+        }
+        input.commitText(mark + " ", 1);
+        predictor.learnPunctuation(context.previous, mark);
     }
 
     @Override
@@ -296,10 +344,10 @@ public final class GlassKeyboardService extends InputMethodService
         if (input == null) {
             return;
         }
-        String[] context = readContext(input);
+        TextContext context = readContext(input);
         // The word it follows is what the association is worth learning against:
         // the word being typed if there is one, otherwise the one before.
-        String anchor = !context[1].isEmpty() ? context[1] : context[0];
+        String anchor = !context.current.isEmpty() ? context.current : context.previous;
         clearCorrectionState();
         input.commitText(emoji, 1);
         predictor.learnEmojiFor(anchor, emoji);
@@ -341,6 +389,13 @@ public final class GlassKeyboardService extends InputMethodService
         keyboard.setVisibility(View.VISIBLE);
     }
 
+    /**
+     * Rebuilds the strip and the shift state from whatever is in the field.
+     *
+     * <p>Both are read back from the field rather than tracked, for the same
+     * reason: the cursor can move, text can be pasted, and the app can edit the
+     * field underneath us.
+     */
     private void refreshSuggestions() {
         if (keyboard == null) {
             return;
@@ -351,46 +406,81 @@ public final class GlassKeyboardService extends InputMethodService
                     Collections.<String>emptyList());
             return;
         }
-        String[] context = readContext(input);
-        List<String> words = predictor.predictWords(context[0], context[1]);
-        List<String> emoji = predictor.predictEmoji(context[0], context[1]);
-        keyboard.setSuggestions(words, emoji);
+        TextContext context = readContext(input);
+
+        // Capitals at the start of a sentence, and again if it is deleted back
+        // to nothing.
+        keyboard.setAutoShift(context.atSentenceStart());
+
+        List<String> words = new ArrayList<>(
+                predictor.predictWords(context.previous, context.current));
+        if (context.current.isEmpty()) {
+            String mark = predictor.predictPunctuation(
+                    context.sentenceStart, context.previous, context.wordsSoFar);
+            if (mark != null) {
+                // The third slot, so a full stop never costs the best word its
+                // place in the centre.
+                if (words.size() >= 3) {
+                    words.set(2, mark);
+                } else {
+                    words.add(mark);
+                }
+            }
+        }
+        keyboard.setSuggestions(words,
+                predictor.predictEmoji(context.previous, context.current));
+    }
+
+    /** What the text before the cursor says about where we are. */
+    private static final class TextContext {
+        String current = "";
+        String previous;
+        String sentenceStart;
+        int wordsSoFar;
+
+        boolean atSentenceStart() {
+            return current.isEmpty() && wordsSoFar == 0;
+        }
     }
 
     /**
-     * The word the cursor sits in, and the word before it.
+     * Parses the text before the cursor into the word being typed, the word
+     * before it, and how far into the sentence they are.
      *
      * <p>Read back from the field every time rather than tracked as the person
-     * types: the cursor can move, text can be pasted, and another app can edit
-     * the field underneath us. A tracked buffer would drift, and drift here
-     * means correcting the wrong word.
-     *
-     * @return {@code {previousWord, currentWord}}; the first may be null and the
-     *     second is empty when the cursor is not inside a word.
+     * types: a tracked buffer drifts as soon as the cursor moves or the app
+     * edits the field, and drift here means correcting the wrong word.
      */
-    private String[] readContext(InputConnection input) {
+    private TextContext readContext(InputConnection input) {
+        TextContext context = new TextContext();
         CharSequence before = input.getTextBeforeCursor(CONTEXT_CHARS, 0);
         if (before == null || before.length() == 0) {
-            return new String[]{null, ""};
+            return context;
         }
-        int end = before.length();
-        int wordStart = end;
-        while (wordStart > 0 && isWordCharacter(before.charAt(wordStart - 1))) {
-            wordStart--;
+        List<String> sentence = new ArrayList<>();
+        StringBuilder token = new StringBuilder();
+        for (int i = 0; i < before.length(); i++) {
+            char c = before.charAt(i);
+            if (isWordCharacter(c)) {
+                token.append(c);
+                continue;
+            }
+            if (token.length() > 0) {
+                sentence.add(token.toString());
+                token.setLength(0);
+            }
+            if (SENTENCE_ENDS.indexOf(c) >= 0 || c == '\n') {
+                // A new sentence starts here, so nothing before it is context.
+                sentence.clear();
+            }
         }
-        String current = before.subSequence(wordStart, end).toString();
-
-        int gap = wordStart;
-        while (gap > 0 && !isWordCharacter(before.charAt(gap - 1))) {
-            gap--;
+        context.current = token.toString();
+        context.wordsSoFar = sentence.size();
+        if (!sentence.isEmpty()) {
+            context.previous = sentence.get(sentence.size() - 1);
+            context.sentenceStart = sentence.get(0);
         }
-        int previousStart = gap;
-        while (previousStart > 0 && isWordCharacter(before.charAt(previousStart - 1))) {
-            previousStart--;
-        }
-        String previous = previousStart < gap
-                ? before.subSequence(previousStart, gap).toString() : null;
-        return new String[]{previous, current};
+        return context;
     }
 
     static boolean isWordCharacter(int code) {

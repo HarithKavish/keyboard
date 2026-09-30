@@ -5,14 +5,19 @@ own. The app behind it shows straight through the gaps, and the keys read as
 panes of glass laid over it.
 
 It is deliberately small. No libraries, no AndroidX, no Kotlin — the release APK
-is around **56 KB**, roughly a thousandth of what a mainstream keyboard installs.
+is around **73 KB**, roughly a thousandth of what a mainstream keyboard installs.
 
 ## What it does
 
 - A three-page QWERTY layout — letters, symbols, a second symbol page — with a
   short number row above the letters.
-- Shift, with caps lock on a double tap.
-- Backspace, which repeats when held.
+- One key, bottom left, that cycles: letters → symbols → emoji → letters.
+- Shift as a three-state cycle: off, shift, caps lock. No double-tap timing to
+  discover.
+- Capitals at the start of a sentence, and again if you delete back to nothing.
+  A full stop takes its own space and starts the next sentence capitalised.
+- Backspace, which repeats when held, and which deletes a whole emoji — flags,
+  skin tones and all — rather than half of one.
 - Enter, which runs the field's own action — search in a search box, newline in
   a message box — rather than always sending one or the other.
 - Light and dark treatments, chosen from the system theme.
@@ -25,7 +30,18 @@ where a thumb resting under the space bar already is.
 
 The words come from what is being typed (completions) or from the word before it
 (what usually follows). The typed word itself always stays reachable, so a word
-the keyboard has never seen can still be kept.
+the keyboard has never seen can still be kept. With no emoji to offer, the words
+spread across the whole strip instead of leaving a third of it empty.
+
+Suggestions follow the shift key: capitalised under shift, in capitals under caps
+lock. Tap a capitalised word to keep it and the keyboard remembers the name that
+way — type "Harith" once mid-sentence and it is offered as "Harith" from then on.
+
+Once a sentence is long enough to be worth ending, the third slot offers the
+punctuation to end it with: a question mark if the sentence opened with a
+question word, an exclamation mark after "congratulations", a full stop
+otherwise — and whatever you actually use after a given word, once it has seen
+you do it.
 
 ### Autocorrect, and being told it is wrong
 
@@ -39,9 +55,16 @@ why it is treated as the signal rather than as an ordinary delete.
 
 ### Emoji
 
-An emoji key opens a picker with a scrolling grid, category tabs and recents —
-transparent, like the rest of the keyboard. No search, GIFs or stickers; those
-are three separate products.
+Two taps of the bottom-left key open a picker with a scrolling grid, category
+tabs and recents — transparent, like the rest of the keyboard, and exactly as
+tall as the keyboard rather than the screen. ABC sits at its bottom left, under
+the same thumb, so the third tap returns to the letters. No search, GIFs or
+stickers; those are three separate products.
+
+The two emoji in the strip are found by keyword rather than by whole word, the
+way CLDR annotates them: "smile", "smiley" and "grin" all reach the same face,
+and "tick", "tickmark" and "check" all reach the same tick. Half a word is
+enough — "smi" already finds it.
 
 ### What it learns, and turning it off
 

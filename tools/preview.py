@@ -37,9 +37,10 @@ def command_row(left_code, left_label, chars):
     return [(left_code, left_label, 1.5)] + row(chars) + [(BACKSPACE, "", 1.5)]
 
 
-def bottom_row(page_code, page_label):
-    return [(page_code, page_label, 1.5), (EMOJI, "", 1.0), (ord(","), ",", 1.0),
-            (ord("@"), "@", 1.0), (ord(" "), "", 3.0), (ord("."), ".", 1.0),
+def bottom_row(cycle_code, cycle_label):
+    """One cycling key bottom left: letters -> symbols -> emoji -> letters."""
+    return [(cycle_code, cycle_label, 1.5), (ord(","), ",", 1.0),
+            (ord("@"), "@", 1.0), (ord(" "), "", 4.0), (ord("."), ".", 1.0),
             (ENTER, "", 1.5)]
 
 
@@ -48,13 +49,15 @@ PAGES = {
                 command_row(SHIFT, "", "zxcvbnm"), bottom_row(PAGE_SYMBOLS, "?123")],
     "symbols": [row("1234567890"), row("@#$%&-+()"),
                 command_row(PAGE_MORE, "=\\<", "*\"':;!?"),
-                bottom_row(PAGE_LETTERS, "ABC")],
+                bottom_row(EMOJI, "")],
 }
 ROW_HEIGHTS = {"letters": [0.66, 1.0, 1.0, 1.0, 1.0], "symbols": [1.0, 1.0, 1.0, 1.0]}
 
 # What the strip would be offering part way through a word.
 SUGGEST_WORDS = ["keyboard", "keep", "key"]
 SUGGEST_EMOJI = ["\U0001F680", "\u2728"]
+# The symbols render deliberately has none, to show the words spreading out.
+SUGGEST_EMOJI_BY_PAGE = {"letters": SUGGEST_EMOJI, "symbols": []}
 
 
 def draw_icon(d, code, x, y, w, h, colour, density, caps=False):
@@ -218,18 +221,22 @@ def draw_keyboard(bg, page, night):
                     font=font_small if len(label) > 1 else font_big,
                     anchor="mm", fill=text_rgb + (255,))
 
-    draw_strip(board, strip_height, pad_h, available, text_rgb)
+    draw_strip(board, strip_height, pad_h, available, text_rgb,
+               SUGGEST_EMOJI_BY_PAGE.get(page, SUGGEST_EMOJI))
 
     out = bg.copy()
     out.paste(board, (0, bg.height - height), board)
     return out
 
 
-def draw_strip(board, strip_height, pad_h, available, text_rgb):
-    """Three words, best in the centre, then two emoji on the right."""
+def draw_strip(board, strip_height, pad_h, available, text_rgb, emoji):
+    """Three words, best in the centre, then two emoji on the right.
+
+    With no emoji to show, the words take the whole strip rather than leaving a
+    third of it empty."""
     d = ImageDraw.Draw(board)
     word_font = ImageFont.truetype(TEXT_FONT, int(strip_height * 0.34))
-    words_width = available * 0.72
+    words_width = available * 0.72 if emoji else available
     slot = words_width / 3
     for i in range(3):
         rank = 0 if i == 1 else (1 if i == 0 else 2)
@@ -247,7 +254,7 @@ def draw_strip(board, strip_height, pad_h, available, text_rgb):
         colour = False
     emoji_left = pad_h + words_width
     emoji_slot = (available - words_width) / 2
-    for i, glyph in enumerate(SUGGEST_EMOJI[:2]):
+    for i, glyph in enumerate(emoji[:2]):
         cx = emoji_left + emoji_slot * (i + 0.5)
         try:
             d.text((cx, strip_height / 2), glyph, font=emoji_font, anchor="mm",

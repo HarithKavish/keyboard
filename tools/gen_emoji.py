@@ -134,7 +134,31 @@ for name, tab, items in CATEGORIES:
     blocks.append("    private static final String[] %s = {\n%s\n    };\n"
                   % (name.upper(), jarray(items)))
 
-body = HEADER + "\n".join(blocks) + """
+from gen_keywords import KEYWORDS
+
+pairs = []
+for glyph, words in KEYWORDS.items():
+    for word in words:
+        pairs.append((word, glyph))
+
+KEYWORD_BLOCK = ("""
+    /**
+     * Flat pairs: keyword, emoji. Modelled on CLDR emoji annotations, where each
+     * emoji carries a short name plus synonyms and a search matches any of them.
+     *
+     * <p>That is the whole reason "smile", "smiley" and "grin" all reach the same
+     * face, and why "tick", "tickmark" and "check" all reach the same tick. An
+     * earlier version stored one word per emoji, so anything but that exact word
+     * found nothing at all.
+     *
+     * <p>A keyword may appear against several emoji; earlier pairs rank higher.
+     */
+    static final String[] KEYWORDS = {
+%s
+    };
+""" % "\n".join('        "%s", "%s",' % (w, esc(g)) for w, g in pairs))
+
+body = HEADER + "\n".join(blocks) + KEYWORD_BLOCK + """
     /** Tab glyphs, in the order the picker shows them. Recents is prepended by the view. */
     static final String[] TAB_LABELS = {
 %s
@@ -153,4 +177,5 @@ body = HEADER + "\n".join(blocks) + """
 out = DIR / "Emoji.java"
 out.write_text(body, encoding="ascii")
 print("wrote", out, len(body.splitlines()), "lines,",
-      sum(len(i) for _, _, i in CATEGORIES), "emoji")
+      sum(len(i) for _, _, i in CATEGORIES), "emoji,",
+      len(pairs), "keywords across", len(KEYWORDS), "emoji")

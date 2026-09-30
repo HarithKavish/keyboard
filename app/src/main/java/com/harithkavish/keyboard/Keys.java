@@ -13,6 +13,10 @@ package com.harithkavish.keyboard;
  * the letters page is deliberately shorter than a letter row. It is there to be
  * reachable, not to compete with the letters for the thumb.
  *
+ * <p>The bottom-left key is one key that cycles rather than three separate ones:
+ * letters → symbols → emoji → letters. There is no dedicated emoji key, and the
+ * space that used to hold one went to the space bar.
+ *
  * <p>Shift, backspace, enter and emoji carry no label. The view draws those as
  * paths, because no font is guaranteed to have the arrow glyphs and a tofu box
  * on the backspace key is not worth the few lines it saves.
@@ -68,7 +72,8 @@ final class Keys {
                     row("1234567890"),
                     row("@#$%&-+()"),
                     commandRow(PAGE_MORE, "=\\<", "*\"':;!?"),
-                    bottomRow(PAGE_LETTERS, "ABC"),
+                    // Second tap of the cycle: symbols → emoji.
+                    bottomRow(EMOJI, ""),
                 };
             case MORE:
                 return new Key[][]{
@@ -86,6 +91,7 @@ final class Keys {
                     row("qwertyuiop"),
                     row("asdfghjkl"),
                     commandRow(SHIFT, "", "zxcvbnm"),
+                    // First tap of the cycle: letters → symbols.
                     bottomRow(PAGE_SYMBOLS, "?123"),
                 };
         }
@@ -123,13 +129,12 @@ final class Keys {
         return keys;
     }
 
-    private static Key[] bottomRow(int pageCode, String pageLabel) {
+    private static Key[] bottomRow(int cycleCode, String cycleLabel) {
         return new Key[]{
-            new Key(pageCode, pageLabel, 1.5f),
-            new Key(EMOJI, "", 1f),
+            new Key(cycleCode, cycleLabel, 1.5f),
             new Key(',', ",", 1f),
             new Key('@', "@", 1f),
-            new Key(' ', "", 3f),
+            new Key(' ', "", 4f),
             new Key('.', ".", 1f),
             new Key(ENTER, "", 1.5f),
         };

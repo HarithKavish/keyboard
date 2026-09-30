@@ -8,6 +8,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -21,9 +22,9 @@ import java.util.Set;
  * a singleton is enough and the settings screen's writes are seen by a keyboard
  * that is already open.
  *
- * <p>Three things are learnt, each switchable independently because they fail
- * differently: word counts and word pairs (prediction), word-to-emoji
- * associations (the two emoji slots), and corrections. A correction the person
+ * <p>Several things are learnt, and the switches cover them in two groups
+ * because they fail differently: words, word pairs, how a word is capitalised
+ * and what punctuation follows it, against emoji habits. A correction the person
  * undoes is remembered as a refusal, not just forgotten -- see
  * {@link #rejectCorrection} -- because a keyboard that re-makes a correction you
  * have already rejected is worse than one that never corrected at all.
@@ -44,6 +45,8 @@ final class Predictor {
     private static final String KEY_EMOJI = "emoji";
     private static final String KEY_BLOCKED = "blocked";
     private static final String KEY_FORCED = "forced";
+    private static final String KEY_CASING = "casing";
+    private static final String KEY_PUNCT = "punct";
 
     /**
      * How far a word typed by hand outweighs a seed word. A seed word scores at
@@ -57,6 +60,25 @@ final class Predictor {
     private static final int MAX_BIGRAM_KEYS = 1500;
     private static final int MAX_EMOJI_KEYS = 800;
     private static final int SAVE_EVERY = 12;
+
+    /** Shorter than this and a keyword prefix match is too loose to be useful. */
+    private static final int MIN_PREFIX = 2;
+    /** Shorter than this and a keyword inside a longer word means nothing. */
+    private static final int MIN_COMPOUND = 3;
+
+    /** A sentence this short is not yet asking to be ended. */
+    private static final int MIN_WORDS_FOR_PUNCTUATION = 3;
+
+    private static final String[] QUESTION_STARTS = {
+        "what", "where", "when", "why", "who", "whose", "which", "how",
+        "is", "are", "was", "were", "do", "does", "did", "can", "could",
+        "will", "would", "should", "shall", "may", "have", "has", "am",
+    };
+    private static final String[] EXCLAMATION_WORDS = {
+        "thanks", "thank", "congratulations", "congrats", "wow", "great",
+        "awesome", "amazing", "brilliant", "perfect", "hooray",
+        "welcome", "excellent", "lovely",
+    };
 
     private static Predictor instance;
 
@@ -83,15 +105,23 @@ final class Predictor {
     /** Seed word -> score. Never mutated after construction. */
     private final Map<String, Integer> seed = new HashMap<>();
     private final List<String> seedOrder = new ArrayList<>();
+    /** Keyword -> emoji, in the order the table lists them. */
+    private final Map<String, List<String>> keywords = new LinkedHashMap<>();
 
     private final Map<String, Integer> unigram = new HashMap<>();
     private final Map<String, Map<String, Integer>> bigram = new HashMap<>();
     private final Map<String, Map<String, Integer>> emoji = new HashMap<>();
-    private final Map<String, Map<String, Integer>> emojiSeed = new HashMap<>();
+    /** Lower-cased word -> how the person writes it, with a count behind it. */
+    private final Map<String, Map<String, Integer>> casing = new HashMap<>();
+    /** Word -> the punctuation the person puts after it. */
+    private final Map<String, Map<String, Integer>> punctuation = new HashMap<>();
     /** "typed>correction" pairs the person has undone. */
     private final Set<String> blocked = new HashSet<>();
     /** What the person actually meant, the last time they fixed a word by hand. */
     private final Map<String, String> forced = new HashMap<>();
+
+    private final Set<String> questionStarts = new HashSet<>();
+    private final Set<String> exclamationWords = new HashSet<>();
 
     private boolean learnWords;
     private boolean learnEmoji;
@@ -147,15 +177,18 @@ final class Predictor {
             seed.put(words[i], score);
             seedOrder.add(words[i]);
         }
-        for (String pair : Vocabulary.BIGRAMS) {
-            int space = pair.indexOf(' ');
-            if (space > 0) {
-                bump(bigram, pair.substring(0, space), pair.substring(space + 1), 2);
+        seedBigrams();
+        for (int i = 0; i + 1 < Emoji.KEYWORDS.length; i += 2) {
+            String keyword = Emoji.KEYWORDS[i];
+            List<String> glyphs = keywords.get(keyword);
+            if (glyphs == null) {
+                glyphs = new ArrayList<>(2);
+                keywords.put(keyword, glyphs);
             }
+            glyphs.add(Emoji.KEYWORDS[i + 1]);
         }
-        for (int i = 0; i + 1 < Vocabulary.EMOJI_SEED.length; i += 2) {
-            bump(emojiSeed, Vocabulary.EMOJI_SEED[i], Vocabulary.EMOJI_SEED[i + 1], 1);
-        }
+        Collections.addAll(questionStarts, QUESTION_STARTS);
+        Collections.addAll(exclamationWords, EXCLAMATION_WORDS);
 
         learnWords = store.getFlag(KEY_LEARN_WORDS, true);
         learnEmoji = store.getFlag(KEY_LEARN_EMOJI, true);
@@ -164,6 +197,8 @@ final class Predictor {
         readCounts(store.get(KEY_UNIGRAM, ""), unigram);
         readNested(store.get(KEY_BIGRAM, ""), bigram);
         readNested(store.get(KEY_EMOJI, ""), emoji);
+        readNested(store.get(KEY_CASING, ""), casing);
+        readNested(store.get(KEY_PUNCT, ""), punctuation);
         for (String entry : split(store.get(KEY_BLOCKED, ""))) {
             blocked.add(entry);
         }
@@ -171,6 +206,15 @@ final class Predictor {
             int tab = entry.indexOf('\t');
             if (tab > 0) {
                 forced.put(entry.substring(0, tab), entry.substring(tab + 1));
+            }
+        }
+    }
+
+    private void seedBigrams() {
+        for (String pair : Vocabulary.BIGRAMS) {
+            int space = pair.indexOf(' ');
+            if (space > 0) {
+                bump(bigram, pair.substring(0, space), pair.substring(space + 1), 2);
             }
         }
     }
@@ -213,24 +257,22 @@ final class Predictor {
     void resetLearning() {
         unigram.clear();
         emoji.clear();
+        casing.clear();
+        punctuation.clear();
         blocked.clear();
         forced.clear();
         // Seeded pairs are rebuilt; only the learnt ones are dropped.
         bigram.clear();
-        for (String pair : Vocabulary.BIGRAMS) {
-            int space = pair.indexOf(' ');
-            if (space > 0) {
-                bump(bigram, pair.substring(0, space), pair.substring(space + 1), 2);
-            }
-        }
+        seedBigrams();
         unsaved = 0;
-        store.remove(KEY_UNIGRAM, KEY_BIGRAM, KEY_EMOJI, KEY_BLOCKED, KEY_FORCED);
+        store.remove(KEY_UNIGRAM, KEY_BIGRAM, KEY_EMOJI, KEY_BLOCKED, KEY_FORCED,
+                KEY_CASING, KEY_PUNCT);
     }
 
     /** True when there is anything to forget, so the button can say so. */
     boolean hasLearned() {
         return !unigram.isEmpty() || !emoji.isEmpty() || !forced.isEmpty()
-                || !blocked.isEmpty();
+                || !blocked.isEmpty() || !casing.isEmpty() || !punctuation.isEmpty();
     }
 
     // -------------------------------------------------------------- prediction
@@ -238,6 +280,9 @@ final class Predictor {
     /**
      * Up to three words, best first. With a prefix these are completions of the
      * word being typed; without one they are guesses at the next word.
+     *
+     * <p>Each comes back in the casing the person uses for it, so a name typed as
+     * "Harith" is offered as "Harith" and not as "harith".
      */
     List<String> predictWords(String previous, String prefix) {
         List<String> out = new ArrayList<>(3);
@@ -257,13 +302,13 @@ final class Predictor {
             sortByScore(pool);
             for (String word : pool) {
                 if (!word.equals(lower) && out.size() < 3) {
-                    out.add(word);
+                    out.add(display(word));
                 }
             }
-            // The literal typing always stays reachable, in the centre slot, so
-            // there is a way to keep a word the keyboard does not know.
-            if (out.size() < 3) {
-                out.add(lower);
+            // The literal typing always stays reachable, so there is a way to
+            // keep a word the keyboard does not know.
+            if (out.size() < 3 && !out.contains(prefix)) {
+                out.add(prefix);
             }
             return out;
         }
@@ -281,12 +326,12 @@ final class Predictor {
             });
             for (String word : pool) {
                 if (out.size() < 3) {
-                    out.add(word);
+                    out.add(display(word));
                 }
             }
         }
         for (int i = 0; i < seedOrder.size() && out.size() < 3; i++) {
-            String word = seedOrder.get(i);
+            String word = display(seedOrder.get(i));
             if (!out.contains(word)) {
                 out.add(word);
             }
@@ -294,47 +339,129 @@ final class Predictor {
         return out;
     }
 
-    /** Up to two emoji for the context, best first. May be empty. */
+    /**
+     * Up to two emoji for the context, best first. May be empty, and the strip
+     * spreads its words out when it is.
+     *
+     * <p>Matching is deliberately loose in three directions, because a strict one
+     * is useless: the whole word, a keyword the word begins with (so "tickmark"
+     * finds the tick), and a keyword beginning with what has been typed so far
+     * (so "smi" already finds the smile). An earlier version matched only whole
+     * words against a single keyword each, which found almost nothing.
+     */
     List<String> predictEmoji(String previous, String current) {
         List<String> out = new ArrayList<>(2);
         addEmojiFor(current, out);
-        addEmojiFor(previous, out);
+        if (out.isEmpty()) {
+            addEmojiFor(previous, out);
+        }
         return out;
     }
 
     private void addEmojiFor(String word, List<String> out) {
-        if (word == null || word.isEmpty() || out.size() >= 2) {
+        if (word == null || word.isEmpty() || out.size() >= 2 || !isWordLike(word)) {
             return;
         }
         String key = word.toLowerCase();
+
+        // 1. What this person actually picks after this word beats any table.
         Map<String, Integer> learnt = emoji.get(key);
-        Map<String, Integer> seeded = emojiSeed.get(key);
-        Map<String, Integer> merged = new HashMap<>();
-        if (seeded != null) {
-            merged.putAll(seeded);
-        }
         if (learnt != null) {
-            for (Map.Entry<String, Integer> e : learnt.entrySet()) {
-                Integer had = merged.get(e.getKey());
-                merged.put(e.getKey(), (had == null ? 0 : had) + e.getValue() * 4);
-            }
+            List<String> pool = new ArrayList<>(learnt.keySet());
+            final Map<String, Integer> counts = learnt;
+            Collections.sort(pool, new Comparator<String>() {
+                @Override
+                public int compare(String a, String b) {
+                    return counts.get(b) - counts.get(a);
+                }
+            });
+            addAll(out, pool);
         }
-        if (merged.isEmpty()) {
+        // 2. An exact keyword.
+        addAll(out, keywords.get(key));
+        if (out.size() >= 2) {
             return;
         }
-        List<String> pool = new ArrayList<>(merged.keySet());
-        final Map<String, Integer> counts = merged;
-        Collections.sort(pool, new Comparator<String>() {
-            @Override
-            public int compare(String a, String b) {
-                return counts.get(b) - counts.get(a);
-            }
-        });
-        for (String e : pool) {
-            if (out.size() < 2 && !out.contains(e)) {
-                out.add(e);
+        // 3. A keyword the typed word starts with: "tickmark" -> "tick".
+        String bestCompound = null;
+        for (Map.Entry<String, List<String>> entry : keywords.entrySet()) {
+            String keyword = entry.getKey();
+            if (keyword.length() >= MIN_COMPOUND && key.length() > keyword.length()
+                    && key.startsWith(keyword)
+                    && (bestCompound == null || keyword.length() > bestCompound.length())) {
+                bestCompound = keyword;
             }
         }
+        if (bestCompound != null) {
+            addAll(out, keywords.get(bestCompound));
+            if (out.size() >= 2) {
+                return;
+            }
+        }
+        // 4. A keyword that starts with what has been typed: "smi" -> "smile".
+        if (key.length() >= MIN_PREFIX) {
+            for (Map.Entry<String, List<String>> entry : keywords.entrySet()) {
+                if (entry.getKey().startsWith(key)) {
+                    addAll(out, entry.getValue());
+                    if (out.size() >= 2) {
+                        return;
+                    }
+                }
+            }
+        }
+    }
+
+    private static void addAll(List<String> out, List<String> glyphs) {
+        if (glyphs == null) {
+            return;
+        }
+        for (String glyph : glyphs) {
+            if (out.size() < 2 && !out.contains(glyph)) {
+                out.add(glyph);
+            }
+        }
+    }
+
+    /**
+     * The punctuation that would end this sentence, or null to offer none.
+     *
+     * <p>Deliberately not always on. A slot spent on a full stop is a slot not
+     * spent on a word, so it is only worth taking once there is a sentence long
+     * enough to be worth ending.
+     *
+     * @param sentenceStart the first word since the last full stop, which is what
+     *     says whether this is a question
+     * @param previous the word the punctuation would follow
+     * @param wordsSoFar words since the last sentence ended
+     */
+    String predictPunctuation(String sentenceStart, String previous, int wordsSoFar) {
+        if (wordsSoFar < MIN_WORDS_FOR_PUNCTUATION || previous == null
+                || !isWordLike(previous)) {
+            return null;
+        }
+        Map<String, Integer> learnt = punctuation.get(previous.toLowerCase());
+        if (learnt != null && !learnt.isEmpty()) {
+            String best = null;
+            int bestCount = 0;
+            for (Map.Entry<String, Integer> e : learnt.entrySet()) {
+                if (e.getValue() > bestCount) {
+                    bestCount = e.getValue();
+                    best = e.getKey();
+                }
+            }
+            if (best != null) {
+                return best;
+            }
+        }
+        if (sentenceStart != null && questionStarts.contains(sentenceStart.toLowerCase())) {
+            return "?";
+        }
+        if (exclamationWords.contains(previous.toLowerCase())
+                || (sentenceStart != null
+                    && exclamationWords.contains(sentenceStart.toLowerCase()))) {
+            return "!";
+        }
+        return ".";
     }
 
     // ------------------------------------------------------------- autocorrect
@@ -424,6 +551,14 @@ final class Predictor {
 
     // ---------------------------------------------------------------- learning
 
+    /**
+     * Learns a word, the pair it forms with the one before it, and how it is
+     * capitalised.
+     *
+     * <p>Casing is only recorded mid-sentence. A word at the start of a sentence
+     * is capitalised because it is at the start of a sentence, and taking that as
+     * evidence would eventually capitalise half the dictionary.
+     */
     void learnWord(String previous, String word) {
         if (!learnWords || word == null || !isWordLike(word)) {
             return;
@@ -432,6 +567,9 @@ final class Predictor {
         bumpCount(unigram, lower, 1);
         if (previous != null && isWordLike(previous)) {
             bump(bigram, previous.toLowerCase(), lower, 1);
+            if (!word.equals(lower)) {
+                bump(casing, lower, word, 1);
+            }
         }
         touch();
     }
@@ -442,6 +580,34 @@ final class Predictor {
         }
         bump(emoji, word.toLowerCase(), picked, 1);
         touch();
+    }
+
+    void learnPunctuation(String previous, String mark) {
+        if (!learnWords || previous == null || mark == null || !isWordLike(previous)) {
+            return;
+        }
+        bump(punctuation, previous.toLowerCase(), mark, 1);
+        touch();
+    }
+
+    /** How this person writes the word, if they write it any particular way. */
+    String display(String lower) {
+        Map<String, Integer> forms = casing.get(lower);
+        if (forms == null || forms.isEmpty()) {
+            return lower;
+        }
+        String best = lower;
+        // Zero, not one: a single mid-sentence capital is already a deliberate
+        // act, and requiring a second one means tapping a name into the strip
+        // once teaches the keyboard nothing.
+        int bestCount = 0;
+        for (Map.Entry<String, Integer> e : forms.entrySet()) {
+            if (e.getValue() > bestCount) {
+                bestCount = e.getValue();
+                best = e.getKey();
+            }
+        }
+        return best;
     }
 
     private void touch() {
@@ -465,6 +631,8 @@ final class Predictor {
         store.put(KEY_UNIGRAM, writeCounts(unigram));
         store.put(KEY_BIGRAM, writeNested(bigram));
         store.put(KEY_EMOJI, writeNested(emoji));
+        store.put(KEY_CASING, writeNested(casing));
+        store.put(KEY_PUNCT, writeNested(punctuation));
         store.put(KEY_BLOCKED, blockedOut.toString());
         store.put(KEY_FORCED, forcedOut.toString());
     }
@@ -598,6 +766,8 @@ final class Predictor {
         }
         pruneKeys(bigram, MAX_BIGRAM_KEYS);
         pruneKeys(emoji, MAX_EMOJI_KEYS);
+        pruneKeys(casing, MAX_EMOJI_KEYS);
+        pruneKeys(punctuation, MAX_EMOJI_KEYS);
     }
 
     private static void pruneKeys(Map<String, Map<String, Integer>> map, int cap) {

@@ -1,6 +1,7 @@
 package com.harithkavish.keyboard;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
@@ -62,9 +63,12 @@ public class KeysTest {
 
     @Test
     public void everyPageCanReachTheOthers() {
-        // A page with no way back strands the user on it.
+        // A page with no way back strands the user on it. Note that symbols no
+        // longer holds a direct key back to the letters: its bottom-left key is
+        // the second tap of the cycle and goes to the emoji picker, whose own
+        // ABC key completes the loop. That is the trade the cycling key makes.
         assertTrue(hasCode(Keys.page(Keys.LETTERS), Keys.PAGE_SYMBOLS));
-        assertTrue(hasCode(Keys.page(Keys.SYMBOLS), Keys.PAGE_LETTERS));
+        assertTrue(hasCode(Keys.page(Keys.SYMBOLS), Keys.EMOJI));
         assertTrue(hasCode(Keys.page(Keys.SYMBOLS), Keys.PAGE_MORE));
         assertTrue(hasCode(Keys.page(Keys.MORE), Keys.PAGE_LETTERS));
         assertTrue(hasCode(Keys.page(Keys.MORE), Keys.PAGE_SYMBOLS));
@@ -89,11 +93,31 @@ public class KeysTest {
     }
 
     @Test
-    public void everyPageCanReachEmojiAndAt() {
+    public void everyPageCanTypeAt() {
         for (int page : new int[]{Keys.LETTERS, Keys.SYMBOLS, Keys.MORE}) {
-            assertTrue("emoji on page " + page, hasCode(Keys.page(page), Keys.EMOJI));
             assertTrue("at sign on page " + page, hasCode(Keys.page(page), '@'));
         }
+    }
+
+    @Test
+    public void theBottomLeftKeyCyclesLettersSymbolsEmoji() {
+        // One key in one place, three taps: letters -> symbols -> emoji -> back.
+        // There is no dedicated emoji key, so if this ever stopped cycling the
+        // picker would become unreachable.
+        assertEquals(Keys.PAGE_SYMBOLS, bottomLeft(Keys.LETTERS));
+        assertEquals(Keys.EMOJI, bottomLeft(Keys.SYMBOLS));
+        assertEquals(Keys.PAGE_LETTERS, bottomLeft(Keys.MORE));
+    }
+
+    @Test
+    public void thereIsNoSeparateEmojiKey() {
+        assertFalse("the letters page must not carry its own emoji key",
+                hasCode(Keys.page(Keys.LETTERS), Keys.EMOJI));
+    }
+
+    private static int bottomLeft(int page) {
+        Keys.Key[][] rows = Keys.page(page);
+        return rows[rows.length - 1][0].code;
     }
 
     @Test

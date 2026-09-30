@@ -25,11 +25,12 @@ disagree with it, governance wins.
 
 Glass Keyboard is an Android input method: a QWERTY keyboard with translucent
 keys drawn over a fully transparent window, so the app behind shows through. It
-has no dependencies at all, and the release APK is about 56 KB.
+has no dependencies at all, and the release APK is about 73 KB.
 
 Beyond the keys it carries a suggestion strip (three words, best in the centre,
-plus two emoji), autocorrect that learns from being overruled, an emoji picker,
-and switches in the app for what it may learn.
+plus two emoji or a punctuation mark), autocorrect that learns from being
+overruled, automatic capitalisation, an emoji picker, and switches in the app for
+what it may learn.
 
 ## Working here
 
@@ -102,6 +103,38 @@ the text sitting behind the cursor, rather than trusting a cursor delta.
 moves the cursor by more than one character, so anything keyed off that delta
 throws the undo away at the exact moment it becomes possible. It was written
 that way once.
+
+**Backspace deletes a grapheme, never a char.** `Graphemes.lastClusterLength()`
+exists because `deleteSurroundingText(1, 0)` splits a surrogate pair: an emoji
+became a replacement box on the first press and only cleared on the second. A
+flag is two regional indicators, a skin tone is a base plus a modifier, a keycap
+is a digit plus two marks, and a family is several emoji joined by zero-width
+joiners — all of them look like one character and must delete like one. It is a
+plain class with no Android in it so the rules are directly testable.
+
+**There is no dedicated emoji key.** The bottom-left key cycles: letters →
+symbols → emoji → letters. A consequence worth knowing is that the symbols page
+has no direct key back to the letters — you reach them through the picker's ABC
+key, which is why that key sits at the picker's bottom left, under the same
+thumb. `KeysTest` pins the cycle, because without it the picker is unreachable.
+
+**The emoji picker is exactly the keyboard's height.** Both views measure through
+`GlassKeyboardView.preferredHeight()`. They share a window, so a picker that
+measured itself against the space available would push the app off the screen.
+
+**Emoji are found by keyword, CLDR-style.** `Emoji.KEYWORDS` gives each emoji a
+short name plus synonyms, and matching is loose in three directions: the whole
+word, a keyword the word starts with ("tickmark" → "tick"), and a keyword
+starting with what has been typed ("smi" → "smile"). One word per emoji was the
+original design and it found almost nothing. The looseness has a cost — "zzzqqq"
+reaches the sleep emoji via "zzz" — and that is an accepted trade, with a test
+saying so.
+
+**Shift is a three-state cycle**, not a double-tap: off → shift → caps lock. A
+timed gesture is invisible, and nobody should have to discover how fast to tap.
+Automatic capitalisation sets shift at the start of a sentence but never
+overrides a person who has touched the key themselves, which is what
+`manualShift` guards.
 
 **Publishing needs the signing secrets.** `publish-store.yml` refuses to run
 without them, on purpose: Android identifies an app by its signature, so a build

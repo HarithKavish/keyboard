@@ -78,37 +78,6 @@ BIGRAMS = [
     ("looking", "forward"), ("forward", "to"), ("sounds", "good"),
 ]
 
-# Seed emoji associations: the word most likely to precede or be the trigger.
-EMOJI_SEED = [
-    ("love", "❤️"), ("heart", "❤️"), ("happy", "\U0001F60A"),
-    ("sad", "\U0001F622"), ("cry", "\U0001F62D"), ("laugh", "\U0001F602"),
-    ("funny", "\U0001F602"), ("fire", "\U0001F525"), ("hot", "\U0001F525"),
-    ("birthday", "\U0001F382"), ("party", "\U0001F389"), ("congratulations", "\U0001F389"),
-    ("congrats", "\U0001F389"), ("thanks", "\U0001F64F"), ("thank", "\U0001F64F"),
-    ("please", "\U0001F64F"), ("sorry", "\U0001F614"), ("ok", "\U0001F44D"),
-    ("okay", "\U0001F44D"), ("good", "\U0001F44D"), ("great", "\U0001F525"),
-    ("awesome", "\U0001F929"), ("cool", "\U0001F60E"), ("nice", "\U0001F44C"),
-    ("food", "\U0001F355"), ("lunch", "\U0001F35D"), ("dinner", "\U0001F37D"),
-    ("coffee", "☕"), ("tea", "\U0001F375"), ("beer", "\U0001F37A"),
-    ("pizza", "\U0001F355"), ("cake", "\U0001F370"), ("sleep", "\U0001F634"),
-    ("tired", "\U0001F634"), ("sun", "☀️"), ("rain", "\U0001F327"),
-    ("dog", "\U0001F436"), ("cat", "\U0001F431"), ("money", "\U0001F4B0"),
-    ("work", "\U0001F4BC"), ("home", "\U0001F3E0"), ("car", "\U0001F697"),
-    ("music", "\U0001F3B5"), ("song", "\U0001F3B5"), ("star", "⭐"),
-    ("angry", "\U0001F620"), ("hug", "\U0001F917"), ("kiss", "\U0001F618"),
-    ("wow", "\U0001F62E"), ("yes", "✅"), ("no", "❌"),
-    ("hello", "\U0001F44B"), ("hi", "\U0001F44B"), ("hey", "\U0001F44B"),
-    ("bye", "\U0001F44B"), ("goodbye", "\U0001F44B"), ("night", "\U0001F319"),
-    ("goodnight", "\U0001F319"), ("morning", "\U0001F305"), ("miss", "\U0001F97A"),
-    ("beautiful", "\U0001F60D"), ("wedding", "\U0001F48D"), ("baby", "\U0001F476"),
-    ("gift", "\U0001F381"), ("travel", "✈️"), ("flight", "✈️"),
-    ("book", "\U0001F4DA"), ("game", "\U0001F3AE"), ("win", "\U0001F3C6"),
-    ("football", "⚽"), ("movie", "\U0001F3AC"), ("photo", "\U0001F4F7"),
-    ("idea", "\U0001F4A1"), ("bug", "\U0001F41B"), ("done", "✅"),
-    ("ready", "\U0001F680"), ("deploy", "\U0001F680"), ("hundred", "\U0001F4AF"),
-]
-
-
 def wrap(items, indent=12, width=88):
     out, line = [], " " * indent
     for i, it in enumerate(items):
@@ -126,8 +95,6 @@ words_block = "\n".join(
     '            + "%s "' % " ".join(ordered[i:i + 9]) for i in range(0, len(ordered), 9))
 bigram_block = "\n".join(
     '        "%s %s",' % b for b in BIGRAMS)
-emoji_block = "\n".join(
-    '        "%s", "%s",' % (w, esc(e)) for w, e in EMOJI_SEED)
 
 body = '''package com.harithkavish.keyboard;
 
@@ -159,14 +126,9 @@ final class Vocabulary {
 %s
     };
 
-    /** Flat pairs: word, emoji, word, emoji. */
-    static final String[] EMOJI_SEED = {
-%s
-    };
 }
-''' % (words_block, bigram_block, emoji_block)
+''' % (words_block, bigram_block)
 
 out = DIR / "Vocabulary.java"
 out.write_text(body, encoding="ascii")
-print("wrote", out, len(ordered), "words,", len(BIGRAMS), "bigrams,",
-      len(EMOJI_SEED), "emoji seeds")
+print("wrote", out, len(ordered), "words,", len(BIGRAMS), "bigrams")

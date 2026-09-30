@@ -210,6 +210,139 @@ public class PredictorTest {
         assertFalse(predictor.predictWords(null, "har").contains("harith"));
     }
 
+
+    // ------------------------------------------------- finding emoji by keyword
+
+    @Test
+    public void findsAnEmojiByAWholeWord() {
+        assertFalse(predictor.predictEmoji(null, "fire").isEmpty());
+        assertFalse(predictor.predictEmoji(null, "birthday").isEmpty());
+    }
+
+    @Test
+    public void findsAnEmojiBySynonym() {
+        // The reported gap: one word per emoji meant "smiley" found nothing even
+        // though "smile" did.
+        assertFalse("smile", predictor.predictEmoji(null, "smile").isEmpty());
+        assertFalse("smiley", predictor.predictEmoji(null, "smiley").isEmpty());
+        assertFalse("grin", predictor.predictEmoji(null, "grin").isEmpty());
+    }
+
+    @Test
+    public void findsTheTickByEveryNameForIt() {
+        String tick = "\u2705";
+        assertTrue("tick", predictor.predictEmoji(null, "tick").contains(tick));
+        assertTrue("tickmark", predictor.predictEmoji(null, "tickmark").contains(tick));
+        assertTrue("check", predictor.predictEmoji(null, "check").contains(tick));
+        assertTrue("checkmark", predictor.predictEmoji(null, "checkmark").contains(tick));
+        assertTrue("done", predictor.predictEmoji(null, "done").contains(tick));
+    }
+
+    @Test
+    public void findsAnEmojiFromAPartialWord() {
+        // Half a word is all the person has typed when the strip is drawn.
+        assertFalse("smi", predictor.predictEmoji(null, "smi").isEmpty());
+        assertFalse("birth", predictor.predictEmoji(null, "birth").isEmpty());
+        assertFalse("roc", predictor.predictEmoji(null, "roc").isEmpty());
+    }
+
+    @Test
+    public void ignoresAPrefixTooShortToMeanAnything() {
+        // One letter matches half the table, which is worse than matching none.
+        assertTrue(predictor.predictEmoji(null, "s").isEmpty());
+    }
+
+    @Test
+    public void offersNoEmojiForAWordWithNone() {
+        // The strip spreads its words out when this happens, so empty is a real
+        // answer rather than a failure.
+        assertTrue(predictor.predictEmoji(null, "qwxvkj").isEmpty());
+    }
+
+    @Test
+    public void aKeywordInsideALongerWordStillCounts() {
+        // The looseness cuts both ways: "zzzqqq" reaches the sleep emoji because
+        // it begins with the keyword "zzz". That is the same rule that makes
+        // "tickmark" work, and it is worth keeping despite the odd false hit.
+        assertFalse(predictor.predictEmoji(null, "zzzqqq").isEmpty());
+    }
+
+    @Test
+    public void whatThePersonPicksBeatsTheTable() {
+        String bug = "\ud83d\udc1b";
+        for (int i = 0; i < 3; i++) {
+            predictor.learnEmojiFor("fire", bug);
+        }
+        assertEquals(bug, predictor.predictEmoji(null, "fire").get(0));
+    }
+
+    // ------------------------------------------------------------ word casing
+
+    @Test
+    public void remembersHowANameIsWritten() {
+        // Mid-sentence, so the capital is a choice rather than a sentence start.
+        for (int i = 0; i < 2; i++) {
+            predictor.learnWord("call", "Harith");
+        }
+        assertEquals("Harith", predictor.display("harith"));
+        assertTrue(predictor.predictWords(null, "har").contains("Harith"));
+    }
+
+    @Test
+    public void doesNotTreatASentenceStartAsAName() {
+        // No previous word means this capital is just where the sentence began.
+        for (int i = 0; i < 4; i++) {
+            predictor.learnWord(null, "Hello");
+        }
+        assertEquals("hello", predictor.display("hello"));
+    }
+
+    @Test
+    public void casingSurvivesARestart() {
+        predictor.learnWord("call", "Kevin");
+        predictor.save();
+        assertEquals("Kevin", new Predictor(store).display("kevin"));
+    }
+
+    @Test
+    public void resetForgetsCasing() {
+        predictor.learnWord("call", "Harith");
+        predictor.resetLearning();
+        assertEquals("harith", predictor.display("harith"));
+    }
+
+    // ------------------------------------------------------ punctuation
+
+    @Test
+    public void offersNoPunctuationUntilThereIsASentence() {
+        assertNull(predictor.predictPunctuation("i", "am", 2));
+        assertNull(predictor.predictPunctuation(null, null, 9));
+    }
+
+    @Test
+    public void endsAnOrdinarySentenceWithAFullStop() {
+        assertEquals(".", predictor.predictPunctuation("i", "home", 5));
+    }
+
+    @Test
+    public void endsAQuestionWithAQuestionMark() {
+        assertEquals("?", predictor.predictPunctuation("how", "you", 4));
+        assertEquals("?", predictor.predictPunctuation("what", "that", 4));
+    }
+
+    @Test
+    public void endsAnExclamationWithAnExclamationMark() {
+        assertEquals("!", predictor.predictPunctuation("congratulations", "you", 4));
+    }
+
+    @Test
+    public void learnsThePunctuationThePersonActuallyUses() {
+        for (int i = 0; i < 3; i++) {
+            predictor.learnPunctuation("home", "!");
+        }
+        assertEquals("!", predictor.predictPunctuation("i", "home", 5));
+    }
+
     // ------------------------------------------------------------------ reset
 
     @Test
