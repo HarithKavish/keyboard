@@ -80,6 +80,13 @@ final class GlassKeyboardView extends View {
      * keyboard rather than as breathing room around the words.
      */
     private static final float STRIP_HEIGHT_DP = 32f;
+
+    /**
+     * How far the finger travels before a press on the space bar becomes a swipe.
+     * Comfortably inside the bar, so the gesture is recognised long before the
+     * finger could slide onto the key beyond it.
+     */
+    private static final float SWIPE_MIN_DP = 40f;
     private static final float LETTER_ROW_DP = 46f;
     /** Cap in landscape, where a letter-row-sized keyboard would eat the screen. */
     private static final float MAX_ROW_SHARE_OF_SCREEN = 0.075f;
@@ -119,6 +126,10 @@ final class GlassKeyboardView extends View {
     private final RectF[] emojiSlots = new RectF[EMOJI_SLOTS];
     /** Index into the strip, words first then emoji, or -1. */
     private int pressedSlot = -1;
+    /** Where the finger went down, for the space bar swipe. */
+    private float downX;
+    /** True once a press that began on the space bar has travelled far enough. */
+    private boolean spaceSwiped;
     /** What the word already typed asks for, independent of the shift key. */
     private Casing.Mode caseHint = Casing.Mode.NONE;
 
@@ -528,6 +539,13 @@ final class GlassKeyboardView extends View {
                         canvas.drawText(label, key.w / 2f, baseline, text);
                     }
                 }
+                if (spaceSwiped && key.code == ' ' && !words.isEmpty()) {
+                    // Without this the gesture is invisible: the bar is blank, so
+                    // there is nothing to say which word is about to be committed.
+                    text.setTextSize(labelSize);
+                    float baseline = key.h / 2f - (text.descent() + text.ascent()) / 2f;
+                    canvas.drawText(shape(words.get(0)), key.w / 2f, baseline, text);
+                }
 
                 canvas.restoreToCount(save);
             }
@@ -740,6 +758,8 @@ final class GlassKeyboardView extends View {
 
         switch (event.getActionMasked()) {
             case MotionEvent.ACTION_DOWN:
+                downX = x;
+                spaceSwiped = false;
                 if (y < stripHeight) {
                     pressedSlot = slotAt(x, y);
                     invalidate();
@@ -750,6 +770,20 @@ final class GlassKeyboardView extends View {
 
             case MotionEvent.ACTION_MOVE:
                 if (pressedSlot >= 0) {
+                    return true;
+                }
+                // Dragging the space bar to the right takes the best suggestion.
+                // The threshold is well inside the bar, so the gesture is claimed
+                // before the finger could reach the key beyond it.
+                if (!spaceSwiped && pressed != null && pressed.code == ' '
+                        && !words.isEmpty() && x - downX >= density * SWIPE_MIN_DP) {
+                    spaceSwiped = true;
+                    cancelRepeat();
+                    invalidate();
+                }
+                if (spaceSwiped) {
+                    // No retargeting once it is a swipe, or sliding past the end of
+                    // the bar would quietly turn it back into a key press.
                     return true;
                 }
                 // A finger that slides onto another key retargets, which is how a
@@ -770,6 +804,21 @@ final class GlassKeyboardView extends View {
                     }
                     return true;
                 }
+                if (spaceSwiped) {
+                    spaceSwiped = false;
+                    cancelRepeat();
+                    pressed = null;
+                    invalidate();
+                    if (!words.isEmpty()) {
+                        performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP);
+                        // Shaped, exactly as tapping the middle slot would be: the
+                        // word shown is the word typed and the word learnt.
+                        pendingSuggestion = shape(words.get(0));
+                        pendingSuggestionIsEmoji = false;
+                        performClick();
+                    }
+                    return true;
+                }
                 Keys.Key key = pressed;
                 cancelRepeat();
                 pressed = null;
@@ -786,6 +835,7 @@ final class GlassKeyboardView extends View {
                 cancelRepeat();
                 pressed = null;
                 pressedSlot = -1;
+                spaceSwiped = false;
                 invalidate();
                 return true;
 

@@ -25,13 +25,20 @@
                 android:resource="@xml/method" />
         </service>
 
+        <!--
+            No LAUNCHER category on purpose: a keyboard has no business taking a
+            slot in the app drawer. It is still exported and still MAIN, which is
+            what lets Settings open it. res/xml/method.xml names this class as the
+            input method's settingsActivity, so it appears under the keyboard's
+            own entry in Languages and input.
+        -->
         <activity
             android:name=".SetupActivity"
             android:exported="true"
             android:label="@string/app_name">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
     </application>

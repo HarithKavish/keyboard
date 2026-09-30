@@ -4,6 +4,10 @@ A QWERTY keyboard for Android with translucent keys and no background of its
 own. The app behind it shows straight through the gaps, and the keys read as
 panes of glass laid over it.
 
+There is no icon in the app drawer. The setup and settings screen lives under
+Settings, in the keyboard's own entry in Languages and input, which is where you
+would look for a keyboard's settings anyway.
+
 It is deliberately small. No libraries, no AndroidX, no Kotlin — the release APK
 is around **157 KB**, of which 73 KB is the word list. Still roughly a thousandth
 of what a mainstream keyboard installs.
@@ -50,6 +54,10 @@ The words come from what is being typed (completions) or from the word before it
 (what usually follows), drawn from a 20,000 word list in frequency order — so
 "art" keeps going into "article", "artist" and, once you add a letter or two,
 "artificial".
+
+Swipe the space bar left to right to take the best suggestion without aiming for
+it. The word appears on the bar as you drag, and lifting off types it; a plain
+tap is still a space.
 
 Contractions keep their apostrophes. Type "dont" and the strip offers "don't";
 finish the word without tapping it and autocorrect puts the apostrophe in. Words

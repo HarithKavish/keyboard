@@ -246,6 +246,23 @@ Three things follow from that, and each is load-bearing:
 tuned, and the strip was previously the one thing on screen the opacity setting
 did not reach.
 
+**There is no launcher icon, and that is deliberate.** `SetupActivity` keeps
+`exported="true"` and its MAIN intent-filter but drops the LAUNCHER category, so
+it does not take a slot in the app drawer. It stays reachable because
+`res/xml/method.xml` names it as the input method's `settingsActivity`, which
+Android links from the keyboard's own entry under Languages and input. Removing
+that attribute would strand the settings screen with no way in at all.
+
+Watch the XML: a literal `--` anywhere inside an XML comment is a parse error,
+and the manifest merger reports it only as "Error parsing AndroidManifest.xml".
+
+**The space bar swipe is claimed before the finger can leave the bar.**
+`SWIPE_MIN_DP` is 40dp, comfortably inside it, and once `spaceSwiped` is set
+ACTION_MOVE stops retargeting entirely -- otherwise sliding past the end of the
+bar would quietly turn the gesture back into a key press on whatever is beyond
+it. The pending word is drawn on the bar while swiping, because a blank bar
+gives no clue which word is about to be committed.
+
 **Publishing needs the signing secrets.** `publish-store.yml` refuses to run
 without them, on purpose: Android identifies an app by its signature, so a build
 signed with a different key is a different app and cannot update an installed
