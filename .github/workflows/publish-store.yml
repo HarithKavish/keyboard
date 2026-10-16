@@ -1,0 +1,269 @@
+name: Publish to Store
+
+# The ecosystem's release flow (the same as ReWeb's and Keyboard's): derive the next version
+# from the latest release tag, build a signed release APK, tag a GitHub Release, then open a
+# pull request adding the APK to HarithKavish/store. The store generates latest.json from the
+# APK's filename when it deploys, so nothing here writes a manifest.
+#
+# Signed with the ecosystem's shared release key, like every app in the store.
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_notes:
+        description: 'Release notes (blank uses the latest commit subject)'
+        required: false
+        type: string
+
+permissions:
+  contents: write     # the GitHub Release
+
+env:
+  APP_NAME: Glass Keyboard
+  SLUG: keyboard
+  BUILD_FILE: app/build.gradle.kts
+
+jobs:
+  publish:
+    name: Build, release and publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      # An unsigned APK, or one signed with a throwaway key, is one Android refuses to install
+      # or refuses to update. Fail here with an explanation rather than ship it.
+      - name: Require release signing
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          STORE_REPO_PAT: ${{ secrets.STORE_REPO_PAT }}
+        run: |
+          set -euo pipefail
+          MISSING=""
+          [ -n "${ANDROID_KEYSTORE_BASE64}"   ] || MISSING="$MISSING ANDROID_KEYSTORE_BASE64"
+          [ -n "${ANDROID_KEYSTORE_PASSWORD}" ] || MISSING="$MISSING ANDROID_KEYSTORE_PASSWORD"
+          [ -n "${ANDROID_KEY_ALIAS}"         ] || MISSING="$MISSING ANDROID_KEY_ALIAS"
+          [ -n "${ANDROID_KEY_PASSWORD}"      ] || MISSING="$MISSING ANDROID_KEY_PASSWORD"
+          # Checked up front too: without it the release would be tagged but never reach the store.
+          [ -n "${STORE_REPO_PAT}"            ] || MISSING="$MISSING STORE_REPO_PAT"
+          if [ -n "$MISSING" ]; then
+            echo "::error::Missing secrets:$MISSING"
+            {
+              echo "### Cannot publish: secrets are not configured"
+              echo ""
+              echo "Missing:$MISSING"
+              echo ""
+              echo "Every build in the store is signed with the ecosystem's one release key"
+              echo "(secretctl STORE_ANDROID_*). Android identifies an app by its signature, so a"
+              echo "different key is a different app: updates fail with a signature mismatch."
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "Secrets present."
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          # The action's default package list still asks for `tools`, which Google removed from
+          # the SDK repository: sdkmanager exits 1 before Gradle is reached. Name what is needed.
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make gradlew executable
+        run: chmod +x ./gradlew
+
+      - name: Determine next version
+        id: version
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          LATEST=$(gh release list --repo "${{ github.repository }}" --limit 1 \
+                     --json tagName --jq '.[0].tagName // ""' 2>/dev/null || echo "")
+          VERSION="${LATEST#v}"
+          if [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            # There is a previous release: the next one is a patch above it.
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$VERSION"
+            PATCH=$((PATCH + 1))
+          else
+            # No release yet: ship the version the build file declares, not one bumped from an
+            # imagined 0.0.0, which would read as older than the code it came from.
+            DECLARED=$(sed -n "s/.*versionName *=\{0,1\} *[\"']\([^\"']*\)[\"'].*/\1/p" "$BUILD_FILE" | head -n 1)
+            if [[ ! "$DECLARED" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::No release tag, and $BUILD_FILE declares no usable versionName (got '$DECLARED')."
+              exit 1
+            fi
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$DECLARED"
+          fi
+          NEW="$MAJOR.$MINOR.$PATCH"
+          # versionCode must increase monotonically or Android refuses the update.
+          CODE=$((MAJOR * 10000 + MINOR * 100 + PATCH))
+          echo "version=$NEW" >> "$GITHUB_OUTPUT"
+          echo "tag=v$NEW"    >> "$GITHUB_OUTPUT"
+          echo "code=$CODE"   >> "$GITHUB_OUTPUT"
+          echo "Previous: ${LATEST:-none} -> new: v$NEW (versionCode $CODE)"
+
+      # Set in this workspace only. Committing it back would be a push to a protected branch
+      # (governance BRANCHING.md); the release tag is the record of the version.
+      - name: Apply version to the build file
+        env:
+          NEW_VERSION: ${{ steps.version.outputs.version }}
+          NEW_CODE: ${{ steps.version.outputs.code }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import os, re, pathlib
+          path = pathlib.Path(os.environ['BUILD_FILE'])
+          text = path.read_text(encoding='utf-8')
+          version, code = os.environ['NEW_VERSION'], os.environ['NEW_CODE']
+          # Groovy (`versionCode 1`) and Kotlin (`versionCode = 1`) alike.
+          text, n1 = re.subn(r'(versionCode\s*=?\s*)\d+', lambda m: m.group(1) + code, text, count=1)
+          text, n2 = re.subn(r'(versionName\s*=?\s*)(["\'])[^"\']*\2',
+                             lambda m: m.group(1) + m.group(2) + version + m.group(2), text, count=1)
+          if not (n1 and n2):
+              raise SystemExit('versionCode/versionName not found in ' + str(path))
+          path.write_text(text, encoding='utf-8')
+          print('versionCode', code, 'versionName', version)
+          PY
+
+      - name: Decode signing keystore
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          echo "${ANDROID_KEYSTORE_BASE64}" | base64 --decode > "${RUNNER_TEMP}/release.jks"
+          if [ ! -s "${RUNNER_TEMP}/release.jks" ]; then
+            echo "::error::ANDROID_KEYSTORE_BASE64 did not decode to a usable keystore."
+            exit 1
+          fi
+
+      - name: Run Android Lint
+        run: ./gradlew lintRelease --no-daemon --stacktrace
+
+      - name: Run unit tests
+        run: ./gradlew testReleaseUnitTest --no-daemon --stacktrace
+
+      - name: Assemble signed release APK
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/release.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: ./gradlew assembleRelease --no-daemon --stacktrace
+
+      - name: Verify the APK is signed with the release key
+        run: |
+          set -euo pipefail
+          APK=$(find app/build/outputs/apk/release -name '*.apk' -type f | head -n 1)
+          if [ -z "$APK" ]; then
+            echo "::error::No release APK was produced"
+            exit 1
+          fi
+          case "$APK" in
+            *unsigned*) echo "::error::Gradle produced $APK: the signing config did not apply."; exit 1 ;;
+          esac
+          BUILD_TOOLS=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          CERTS=$("$BUILD_TOOLS/apksigner" verify --print-certs "$APK")
+          echo "$CERTS"
+          # The local fallback signs with the debug key; a store build must never ship that.
+          if echo "$CERTS" | grep -q "CN=Android Debug"; then
+            echo "::error::$APK is signed with a debug key, not the release key."
+            exit 1
+          fi
+          echo "apk=$APK" >> "$GITHUB_ENV"
+          ls -l "$APK"
+
+      - name: Gather release notes
+        id: notes
+        env:
+          MANUAL_NOTES: ${{ inputs.release_notes }}
+        run: |
+          set -euo pipefail
+          NOTES="${MANUAL_NOTES:-$(git log -1 --pretty=%s | cut -c1-160)}"
+          [ -n "$NOTES" ] || NOTES="Bug fixes and improvements"
+          {
+            echo "body<<NOTES_EOF"
+            echo "$NOTES"
+            echo "NOTES_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: "${{ env.APP_NAME }} ${{ steps.version.outputs.tag }}"
+          body: ${{ steps.notes.outputs.body }}
+          files: ${{ env.apk }}
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Open the store release pull request
+        env:
+          STORE_REPO_PAT: ${{ secrets.STORE_REPO_PAT }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          APK_SRC=$(realpath "$GITHUB_WORKSPACE/${{ env.apk }}")
+
+          # Protected branches take changes only through pull requests (governance BRANCHING.md),
+          # so the release goes in as one: from this pipeline's own branch, reset onto development
+          # each time, with auto-merge. It reaches store.harithkavish.com when promoted to main.
+          # Opened with STORE_REPO_PAT, not GITHUB_TOKEN: a pull request made with GITHUB_TOKEN
+          # triggers no workflows, so the review and the gate would never run on it.
+          BRANCH="feature/release-${SLUG}"
+          git clone -q "https://x-access-token:${STORE_REPO_PAT}@github.com/HarithKavish/store.git" /tmp/store
+          cd /tmp/store
+          git fetch -q origin development
+          git checkout -q -B "$BRANCH" origin/development
+          DEST="apps/${SLUG}/mobile/android"
+          mkdir -p "$DEST"
+          # Versioned filename only: the store derives latest.json from the highest version.
+          cp "$APK_SRC" "$DEST/${SLUG}-v${VERSION}.apk"
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "$DEST"
+          git commit -q -m "release: ${APP_NAME} v${VERSION}"
+          git push -q --force origin "$BRANCH"
+
+          export GH_TOKEN="$STORE_REPO_PAT"
+          PR=$(gh pr list -R HarithKavish/store --head "$BRANCH" --base development --state open --json number --jq '.[0].number // empty')
+          if [ -z "$PR" ]; then
+            gh pr create -R HarithKavish/store --head "$BRANCH" --base development \
+              --title "release: ${APP_NAME} v${VERSION}" \
+              --body "Publishes ${APP_NAME} v${VERSION} into the store catalogue. Opened by the release pipeline of ${{ github.repository }}; it merges itself once the gate passes and reaches store.harithkavish.com when promoted to main."
+            PR=$(gh pr list -R HarithKavish/store --head "$BRANCH" --base development --state open --json number --jq '.[0].number')
+          fi
+          gh pr merge "$PR" -R HarithKavish/store --auto --squash
+          echo "Store release pull request: https://github.com/HarithKavish/store/pull/$PR"
+
+      - name: Delete decoded keystore
+        if: always()
+        run: rm -f "${RUNNER_TEMP}/release.jks"
+
+      - name: Summary
+        run: |
+          {
+            echo "### Published ${APP_NAME} v${{ steps.version.outputs.version }}"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Tag | ${{ steps.version.outputs.tag }} |"
+            echo "| versionCode | ${{ steps.version.outputs.code }} |"
+            echo "| Store path | apps/${SLUG}/mobile/android/${SLUG}-v${{ steps.version.outputs.version }}.apk |"
+          } >> "$GITHUB_STEP_SUMMARY"
