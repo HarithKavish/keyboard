@@ -24,18 +24,14 @@ to install.
 **Android identifies an app by its signing certificate.** A build signed with a
 different key is, to the system, a different app: installing it over the old one
 fails with a signature mismatch, and updates stop working for everyone who
-already has it. So one key is generated once and kept for the life of the app.
+already has it. So one key is kept for the life of the app.
 
-### Generate the keystore
+That key is the ecosystem's shared release key, the one every app in
+`HarithKavish/store` is signed with. It lives in the owner's secret vault
+(`secretctl`, `STORE_ANDROID_*`) and reaches this repository only as the
+secrets below. Do not generate a new one.
 
-```bash
-keytool -genkeypair -v \
-  -keystore release.jks \
-  -keyalg RSA -keysize 4096 -validity 10000 \
-  -alias glass-keyboard
-```
-
-Keep `release.jks` out of the repository — `.gitignore` already excludes
+Keep any copy of the keystore out of the repository — `.gitignore` already excludes
 `*.jks`, `*.keystore` and `keystore.properties`. Losing it means the app can
 never be updated again, only republished under a new application id.
 
@@ -46,7 +42,7 @@ Create `keystore.properties` at the repository root:
 ```properties
 storeFile=/absolute/path/to/release.jks
 storePassword=...
-keyAlias=glass-keyboard
+keyAlias=...
 keyPassword=...
 ```
 
@@ -54,16 +50,16 @@ Then `./gradlew assembleRelease`.
 
 ### Build with it in CI
 
-`publish-store.yml` reads four repository secrets and refuses to run if any is
+`publish-store.yml` reads five repository secrets and refuses to run if any is
 missing:
 
 | Secret | What it holds |
 |---|---|
-| `ANDROID_KEYSTORE_BASE64` | `base64 -w0 release.jks` |
+| `ANDROID_KEYSTORE_BASE64` | the keystore, base64 |
 | `ANDROID_KEYSTORE_PASSWORD` | the keystore password |
-| `ANDROID_KEY_ALIAS` | `glass-keyboard` |
+| `ANDROID_KEY_ALIAS` | the key alias |
 | `ANDROID_KEY_PASSWORD` | the key password |
-| `STORE_REPO_PAT` | a token that can push to `HarithKavish/store` |
+| `STORE_REPO_PAT` | a token that can push a branch to `HarithKavish/store` and open a pull request there |
 
 The workflow decodes the keystore into the runner's temp directory, builds,
 verifies the APK really is signed with `apksigner`, and deletes the decoded file
@@ -73,8 +69,13 @@ whether or not the build succeeded.
 
 `publish-store.yml`, run by hand from the Actions tab, does the whole release:
 it reads the latest release tag, bumps the patch version, builds and signs,
-tags a GitHub Release, and pushes the APK into `HarithKavish/store` under
-`apps/keyboard/mobile/android/keyboard-vX.Y.Z.apk`.
+tags a GitHub Release, and opens a pull request into `HarithKavish/store`'s
+`development` adding `apps/keyboard/mobile/android/keyboard-vX.Y.Z.apk`. The pull
+request merges itself once the store's gate passes, and the build reaches
+store.harithkavish.com when `development` is promoted to `main`.
 
-The store's own "Update app manifests" workflow regenerates `latest.json` from
-the filename, so nothing here writes a manifest.
+Nothing is committed back here: the version is set in the runner's workspace
+from the latest release tag (the first release ships the `versionName` in
+`app/build.gradle.kts`), because protected branches take changes only through
+pull requests. The store generates `latest.json` from the filename when it
+deploys, so nothing here writes a manifest.
